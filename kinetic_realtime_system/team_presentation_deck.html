@@ -756,12 +756,11 @@
               <div class="card-title">🎬 시·청각 예측 반응 메커니즘</div>
               <div class="card-body" style="font-size: 15.5px; line-height: 1.75; margin-top: 6px;">
                 • <strong>전쟁 언급량 급증 시 (미래 위험 고조):</strong><br>
-                3D 영상은 격렬한 소용돌이와 핏빛 빛깔로 폭발하고, 
-                36개의 모터는 빠르게 회전하며 경각심의 종소리를 냅니다.<br><br>
-                • <strong>일상적 상태 (30~65점, 현재 약 40점대):</strong><br>
-                따뜻한 샴페인 골드빛 파티클과 부드러운 중진폭(±11°) 종소리로 일상적 기류를 연출합니다.<br><br>
-                • <strong>극단적 전쟁 위기 (85점 이상 / 2022 러-우 위기 98.4점):</strong><br>
-                3D 영상은 격렬한 소용돌이와 핏빛 크림슨 레드로 폭발하고, 36개의 모터는 최대 ±20°로 빠르게 회전하며 경각심의 종소리를 냅니다.
+                  진폭 증가($\pm 15^\circ$), 탠저린 오렌지/레드 가열, 종의 타격 주기 가속<br><br>
+                • <strong>극단적 전쟁 위기 (85점 이상):</strong><br>
+                  - <strong>2022.02 러시아-우크라이나 전면 침공 직전 (GDELT 기준 98.4점)</strong><br>
+                  - <strong>2024.04 미국-이란 중동 확전 위기 직전 (Bluesky 오픈소셜 기준 95.2점)</strong><br>
+                  핏빛 크림슨 레드(#ef4444) 폭발, 서보모터 최대 진폭(±20°) 격렬 타격
               </div>
             </div>
             <div class="highlight-box" style="font-size: 15px;">
@@ -823,34 +822,38 @@
         <!-- Interactive Control Bar -->
         <div class="demo-switch-bar">
           <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-            <span style="font-size: 15px; font-weight: 800; color: var(--starbucks-green);">🔔 라이브 시연:</span>
+            <span style="font-size: 15px; font-weight: 800; color: var(--starbucks-green);">🔔 시나리오 시연:</span>
             
-            <!-- Extreme Climax Crisis Trigger -->
-            <button id="deck-btn-crisis" onclick="triggerCrisisDemo(true)" style="background: #ef4444; color: #ffffff; border: none; padding: 7px 16px; border-radius: 50px; font-size: 12.5px; font-weight: 800; cursor: pointer; animation: pulse-red 1.5s infinite; display: flex; align-items: center; gap: 6px;">
-              <span>🔴 러-우 전쟁 발발 직전 극단 모드 (Score: 98.4)</span>
+            <!-- 2022 Russia-Ukraine Crisis Trigger -->
+            <button id="deck-btn-ukraine" onclick="triggerCrisisDemo('ukraine')" style="background: #ef4444; color: #ffffff; border: none; padding: 7px 14px; border-radius: 50px; font-size: 12px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+              <span>🔴 2022 러-우 침공 직전 (98.4)</span>
+            </button>
+
+            <!-- 2024 US-Iran Crisis Trigger -->
+            <button id="deck-btn-iran" onclick="triggerCrisisDemo('iran')" style="background: #f97316; color: #ffffff; border: none; padding: 7px 14px; border-radius: 50px; font-size: 12px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+              <span>🟠 2024 미국-이란 위기 (95.2)</span>
             </button>
 
             <!-- Return to Live Sync -->
-            <button id="deck-btn-live" onclick="triggerCrisisDemo(false)" style="background: #d4e9e2; color: #006241; border: 1px solid rgba(0,98,65,0.2); padding: 7px 14px; border-radius: 50px; font-size: 12.5px; font-weight: 700; cursor: pointer;">
+            <button id="deck-btn-live" onclick="triggerCrisisDemo(false)" style="background: #d4e9e2; color: #006241; border: 1px solid rgba(0,98,65,0.2); padding: 7px 14px; border-radius: 50px; font-size: 12px; font-weight: 800; cursor: pointer;">
               <span>🟢 실시간 데이터 복귀</span>
             </button>
           </div>
 
           <div style="display: flex; gap: 8px;">
-            <button class="btn-pill-green" id="btn-tab-2d" onclick="switchDemo('live_monitor.html')" style="padding: 7px 14px; font-size: 12px;">2D 벨 파도 모니터</button>
-            <button class="btn-pill-green" id="btn-tab-3d" onclick="switchDemo('exhibition_visual.html')" style="padding: 7px 14px; font-size: 12px; background-color: var(--house-green);">3D 미디어아트 영상</button>
-            <button class="btn-pill-green" onclick="openFullscreenDemo()" style="padding: 7px 14px; font-size: 12px; background-color: var(--gold); color: #000;">새창 전체화면 ↗</button>
+            <button class="btn-pill-green" id="btn-tab-3d" onclick="switchDemo('exhibition_visual.html')" style="padding: 7px 14px; font-size: 12px; background-color: var(--gold); color: #000;">3D 미디어아트 영상</button>
+            <button class="btn-pill-green" onclick="openFullscreenDemo()" style="padding: 7px 14px; font-size: 12px; background-color: var(--house-green);">새창 전체화면 ↗</button>
           </div>
         </div>
 
         <!-- Embedded Live Demo iFrame -->
         <div class="demo-frame-container">
-          <iframe id="demo-iframe" src="live_monitor.html" class="demo-iframe"></iframe>
+          <iframe id="demo-iframe" src="exhibition_visual.html" class="demo-iframe"></iframe>
         </div>
 
         <div style="display: flex; justify-content: space-between; font-size: 13px; color: var(--text-black-soft);">
-          <span>💡 빨간 버튼을 누르면 <strong>러시아-우크라이나 전쟁 발발 직전 극단 모드(Score 98.4)</strong>로 거리와 무관하게 최대 폭발 작동을 유지합니다.</span>
-          <span>서버: <code>GDELT 10s Live Sync (2s Timeout Safe)</code></span>
+          <span>💡 버튼을 누르면 <strong>2022 러시아-우크라이나(98.4)</strong> 또는 <strong>2024 미국-이란 중동 위기(95.2)</strong> 당시의 극단적 파도를 시연합니다.</span>
+          <span>엔진: <code>Bluesky / Open Social Live Sync</code></span>
         </div>
 
       </div>
@@ -890,8 +893,8 @@
     let currentSlide = 0;
     const totalSlides = slides.length;
 
-    let currentDemoPage = 'live_monitor.html';
-    let isCrisisDemo = false;
+    let currentDemoPage = 'exhibition_visual.html';
+    let currentScenario = 'live';
 
     function updateDeckUI() {
       slides.forEach((slide, idx) => {
@@ -947,42 +950,37 @@
     });
 
     // Crisis Demo Trigger Functionality
-    function triggerCrisisDemo(activate) {
-      isCrisisDemo = activate;
-      const param = activate ? '?mode=ukraine2022' : '';
+    function triggerCrisisDemo(mode) {
+      currentScenario = mode;
+      let param = '';
+      if (mode === 'ukraine' || mode === true) {
+        param = '?mode=ukraine2022';
+      } else if (mode === 'iran') {
+        param = '?mode=iran2024';
+      }
+
       if (demoIframe) {
         demoIframe.src = currentDemoPage + param;
       }
       
-      const btnCrisis = document.getElementById('deck-btn-crisis');
+      const btnUkraine = document.getElementById('deck-btn-ukraine');
+      const btnIran = document.getElementById('deck-btn-iran');
       const btnLive = document.getElementById('deck-btn-live');
-      if (btnCrisis && btnLive) {
-        if (activate) {
-          btnCrisis.style.boxShadow = '0 0 20px rgba(239,68,68,0.9)';
-          btnLive.style.opacity = '0.7';
-        } else {
-          btnCrisis.style.boxShadow = 'none';
-          btnLive.style.opacity = '1.0';
-        }
-      }
+
+      if (btnUkraine) btnUkraine.style.boxShadow = (mode === 'ukraine') ? '0 0 20px rgba(239,68,68,0.9)' : 'none';
+      if (btnIran) btnIran.style.boxShadow = (mode === 'iran') ? '0 0 20px rgba(249,115,22,0.9)' : 'none';
+      if (btnLive) btnLive.style.opacity = (mode === false) ? '1.0' : '0.8';
     }
 
     // Demo Switching Functionality
     function switchDemo(pageName) {
       currentDemoPage = pageName;
-      const param = isCrisisDemo ? '?mode=ukraine2022' : '';
+      let param = '';
+      if (currentScenario === 'ukraine') param = '?mode=ukraine2022';
+      else if (currentScenario === 'iran') param = '?mode=iran2024';
+
       if (demoIframe) {
         demoIframe.src = pageName + param;
-      }
-
-      const btn2D = document.getElementById('btn-tab-2d');
-      const btn3D = document.getElementById('btn-tab-3d');
-      if (pageName === 'live_monitor.html') {
-        btn2D.style.backgroundColor = 'var(--green-accent)';
-        btn3D.style.backgroundColor = 'var(--house-green)';
-      } else {
-        btn2D.style.backgroundColor = 'var(--house-green)';
-        btn3D.style.backgroundColor = 'var(--green-accent)';
       }
     }
 

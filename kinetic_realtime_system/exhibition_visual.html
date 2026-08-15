@@ -263,6 +263,13 @@
       animation: pulse-red 1.5s infinite;
     }
 
+    .btn-scenario.iran.active {
+      background: #f97316 !important;
+      color: #ffffff !important;
+      box-shadow: 0 0 16px rgba(249, 115, 22, 0.7);
+      animation: pulse-red 1.5s infinite;
+    }
+
     @keyframes pulse-red {
       0% { transform: scale(1); }
       50% { transform: scale(1.04); }
@@ -399,14 +406,15 @@
 
   <div class="hint-box">전시용 모니터 모드: [F11] 키를 눌러 전체화면으로 감상하세요</div>
 
-  <!-- Bottom Interactive Bar -->
-  <div class="bottom-bar">
     <!-- Preset Buttons -->
     <button class="btn-scenario live active" id="btn-mode-live" onclick="setScenario('live')">
       <span>🟢 실시간 라이브</span>
     </button>
-    <button class="btn-scenario crisis" id="btn-mode-crisis" onclick="setScenario('crisis')">
-      <span>🔴 러-우 전쟁 발발 직전 (98.4)</span>
+    <button class="btn-scenario crisis" id="btn-mode-crisis" onclick="setScenario('ukraine')">
+      <span>🔴 2022 러-우 침공 직전 (98.4)</span>
+    </button>
+    <button class="btn-scenario iran" id="btn-mode-iran" onclick="setScenario('iran')" style="background: rgba(249, 115, 22, 0.2); color: #fdba74; border: 1px solid rgba(249, 115, 22, 0.4);">
+      <span>🟠 2024 미국-이란 위기 (95.2)</span>
     </button>
 
     <div class="slider-container">
@@ -467,41 +475,67 @@
     const txtEvents = document.getElementById('txt-events');
     const txtViolence = document.getElementById('txt-violence');
 
-    // Check URL Query Parameter: ?mode=ukraine2022 or ?crisis=true
+    // Check URL Query Parameter: ?mode=ukraine2022 or ?mode=iran2024 or ?crisis=true
     const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('mode') === 'ukraine2022' || urlParams.get('crisis') === 'true') {
+    if (urlParams.get('mode') === 'iran2024' || urlParams.get('mode') === 'iran') {
+      setTimeout(() => setScenario('iran'), 100);
+    } else if (urlParams.get('mode') === 'ukraine2022' || urlParams.get('crisis') === 'true') {
       setTimeout(() => setScenario('crisis'), 100);
     }
 
+    const btnModeIran = document.getElementById('btn-mode-iran');
+
     function setScenario(mode) {
       currentMode = mode;
-      if (mode === 'crisis') {
-        btnModeLive.classList.remove('active');
+      btnModeLive.classList.remove('active');
+      btnModeCrisis.classList.remove('active');
+      if (btnModeIran) btnModeIran.classList.remove('active');
+
+      if (mode === 'crisis' || mode === 'ukraine') {
         btnModeCrisis.classList.add('active');
 
         liveScore = 98.4;
         scoreDisplay.innerText = '98.4';
         scoreDisplay.style.color = '#ef4444';
-        scoreSub.innerText = '⚠️ 역사상 최고치 분쟁 언급량 (2022.02 러-우 전쟁 발발)';
+        scoreSub.innerText = '⚠️ 역사상 최고치 분쟁 언급량 (2022.02 러-우 전쟁 전면 침공 직전)';
 
         badgeStatus.innerText = 'CRITICAL PEAK';
         badgeStatus.style.color = '#ef4444';
         statusDot.style.backgroundColor = '#ef4444';
         statusDot.style.boxShadow = '0 0 12px #ef4444';
 
-        topTitle.innerText = 'CRITICAL CRISIS (Feb 2022 Russia-Ukraine War Eve)';
+        topTitle.innerText = 'CRITICAL CRISIS (2022.02 Russia-Ukraine War Outbreak)';
         topTitle.style.color = '#ef4444';
 
         txtDate.innerText = '2022-02-24';
         txtFatalities.innerText = '1,420명+';
         txtEvents.innerText = '3,890건';
         txtViolence.innerText = '3,650건';
+      } else if (mode === 'iran') {
+        if (btnModeIran) btnModeIran.classList.add('active');
+
+        liveScore = 95.2;
+        scoreDisplay.innerText = '95.2';
+        scoreDisplay.style.color = '#f97316';
+        scoreSub.innerText = '🚨 오픈 소셜 언급량 폭증 (2024.04 미국-이란 중동 확전 위기)';
+
+        badgeStatus.innerText = 'HIGH TENSION';
+        badgeStatus.style.color = '#f97316';
+        statusDot.style.backgroundColor = '#f97316';
+        statusDot.style.boxShadow = '0 0 12px #f97316';
+
+        topTitle.innerText = 'MIDDLE EAST CRISIS (2024.04 US-Iran Escalation Eve)';
+        topTitle.style.color = '#f97316';
+
+        txtDate.innerText = '2024-04-13';
+        txtFatalities.innerText = '320명+';
+        txtEvents.innerText = '1,840건';
+        txtViolence.innerText = '1,620건';
       } else {
-        btnModeCrisis.classList.remove('active');
         btnModeLive.classList.add('active');
 
         scoreDisplay.style.color = '#f8fafc';
-        scoreSub.innerText = '(GDELT Global News Volume Scale / Max 20%)';
+        scoreSub.innerText = '(오픈 소셜 실시간 스트림 스케일 / Max 100%)';
         badgeStatus.innerText = 'LIVE OK';
         badgeStatus.style.color = '#22c55e';
         statusDot.style.backgroundColor = '#22c55e';
