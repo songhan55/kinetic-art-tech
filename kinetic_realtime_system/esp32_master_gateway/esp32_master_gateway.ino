@@ -337,19 +337,25 @@ void dataFetchTask(void *pvParameters) {
 
       server.handleClient();
 
-      // 5초마다 오픈 소셜 타임라인 수신
-      if (millis() - lastFetchTime >= 5000) {
+      // 3.5초마다 글로벌 7대 분쟁 키워드 순환 수집
+      if (millis() - lastFetchTime >= 3500) {
         lastFetchTime = millis();
 
         if (!isPaused) {
+          const char* CRISIS_TAGS[] = {"war", "conflict", "ukraine", "iran", "missile", "military", "crisis"};
+          const int NUM_TAGS = 7;
+          static int tagIdx = 0;
+          const char* targetTag = CRISIS_TAGS[tagIdx];
+          tagIdx = (tagIdx + 1) % NUM_TAGS;
+
           WiFiClientSecure client;
           client.setInsecure();
 
           HTTPClient http;
-          String url = "https://mastodon.social/api/v1/timelines/tag/war?limit=5";
+          String url = "https://mastodon.social/api/v1/timelines/tag/" + String(targetTag) + "?limit=5";
 
           http.begin(client, url);
-          http.setTimeout(4000);
+          http.setTimeout(3000);
           http.addHeader("User-Agent", "KineticArt-LiveSocialBot/1.0");
 
           int httpCode = http.GET();
@@ -373,13 +379,15 @@ void dataFetchTask(void *pvParameters) {
                   else if (!inTag) cleanText += contentRaw[i];
                 }
                 cleanText.trim();
-                if (cleanText.length() > 60) cleanText = cleanText.substring(0, 60) + "...";
-                lastPostSnippet = cleanText;
+                if (cleanText.length() > 55) cleanText = cleanText.substring(0, 55) + "...";
+                lastPostSnippet = "#" + String(targetTag) + " | " + cleanText;
 
-                float postCountScore = 35.0f + (posts.size() * 6.5f);
-                sharedScore = constrain(postCountScore, 10.0f, 95.0f);
+                // 실시간 유입량 기반 점수 환산 (기본 36점 + 글 개수 비례)
+                float incomingScore = 35.0f + (posts.size() * 2.8f);
+                sharedScore = (sharedScore * 0.65f) + (incomingScore * 0.35f);
+                sharedScore = constrain(sharedScore, 20.0f, 95.0f);
 
-                Serial.printf("\n[📡 마스터 데이터 수신] 소셜 긴장도: %.1f점 -> 슬레이브로 1ms 전송!\n", sharedScore);
+                Serial.printf("\n[📡 실시간 #%s 수집] 글 수: %d건 | 긴장도: %.1f점 -> 슬레이브 1ms 전송!\n", targetTag, posts.size(), sharedScore);
                 sendEspNowPacket(0);
               }
             }
