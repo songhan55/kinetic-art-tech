@@ -148,63 +148,6 @@
       margin-top: 2px;
     }
 
-    /* Right HUD Control Panel */
-    .hud-right {
-      position: absolute;
-      top: 54px;
-      right: 20px;
-      width: 270px;
-      background: var(--panel-bg);
-      backdrop-filter: blur(16px);
-      border: 1px solid var(--panel-border);
-      border-radius: 12px;
-      padding: 16px;
-      z-index: 10;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 11px;
-      transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      max-height: calc(100vh - 130px);
-      overflow-y: auto;
-    }
-
-    .param-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-    }
-
-    .param-name {
-      color: #94a3b8;
-      width: 90px;
-    }
-
-    .param-val {
-      color: #f8fafc;
-      font-weight: 700;
-      width: 50px;
-      text-align: right;
-    }
-
-    .param-bar-bg {
-      flex: 1;
-      height: 6px;
-      background: rgba(255, 255, 255, 0.1);
-      border-radius: 3px;
-      overflow: hidden;
-    }
-
-    .param-bar-fill {
-      height: 100%;
-      width: 50%;
-      background: var(--accent-green);
-      transition: width 0.3s ease, background-color 0.3s ease;
-    }
-
     /* Bottom Control Bar */
     .bottom-bar {
       position: absolute;
@@ -371,52 +314,14 @@
 
     <div class="data-card">
       <div class="data-label">실시간 전쟁·분쟁 관심도 지수</div>
-      <div class="data-value-large" id="score-display">42.0</div>
-      <div class="data-sub" id="score-sub">(오픈 소셜 실시간 스트림 스케일 / Max 100%)</div>
+      <div class="data-value-large" id="score-display">31.5</div>
+      <div class="data-sub" id="score-sub">(글로벌 7대 분쟁 실시간 스트림)</div>
     </div>
 
     <div class="data-card">
       <div class="data-label">관람객 거리 감쇄 피드백</div>
       <div style="font-size: 15px; font-weight: 700; color: var(--accent-gold);" id="dist-display">3.0m (원거리 파도)</div>
       <div class="data-sub" id="damp-display">진폭 감쇄 계수: K = 1.00</div>
-    </div>
-  </div>
-
-  <!-- Right HUD -->
-  <div class="hud-right">
-    <div class="hud-title" style="margin-bottom: 6px;">
-      <span>CONSTANT ctrl</span>
-      <span style="color: #64748b;">3D NOISE</span>
-    </div>
-
-    <div class="param-row">
-      <span class="param-name">noiseSpeed</span>
-      <div class="param-bar-bg"><div class="param-bar-fill" id="bar-speed" style="width: 60%;"></div></div>
-      <span class="param-val" id="val-speed">0.60</span>
-    </div>
-
-    <div class="param-row">
-      <span class="param-name">noiseAmp</span>
-      <div class="param-bar-bg"><div class="param-bar-fill" id="bar-amp" style="width: 45%;"></div></div>
-      <span class="param-val" id="val-amp">0.45</span>
-    </div>
-
-    <div class="param-row">
-      <span class="param-name">hGain</span>
-      <div class="param-bar-bg"><div class="param-bar-fill" id="bar-hgain" style="width: 74%;"></div></div>
-      <span class="param-val" id="val-hgain">0.74</span>
-    </div>
-
-    <div class="param-row">
-      <span class="param-name">suction</span>
-      <div class="param-bar-bg"><div class="param-bar-fill" id="bar-suction" style="width: 32%;"></div></div>
-      <span class="param-val" id="val-suction">0.32</span>
-    </div>
-
-    <div class="param-row">
-      <span class="param-name">rotation</span>
-      <div class="param-bar-bg"><div class="param-bar-fill" id="bar-rot" style="width: 25%;"></div></div>
-      <span class="param-val" id="val-rot">0.16</span>
     </div>
   </div>
 
@@ -480,17 +385,6 @@
 
     const btnModeLive = document.getElementById('btn-mode-live');
     const btnModeCrisis = document.getElementById('btn-mode-crisis');
-
-    const valSpeed = document.getElementById('val-speed');
-    const valAmp = document.getElementById('val-amp');
-    const valHgain = document.getElementById('val-hgain');
-    const valSuction = document.getElementById('val-suction');
-    const valRot = document.getElementById('val-rot');
-
-    const barSpeed = document.getElementById('bar-speed');
-    const barAmp = document.getElementById('bar-amp');
-    const barSuction = document.getElementById('bar-suction');
-    const barRot = document.getElementById('bar-rot');
 
     // Check URL Query Parameter: ?mode=ukraine2022 or ?mode=iran2024 or ?crisis=true
     const urlParams = new URLSearchParams(window.location.search);
@@ -677,9 +571,7 @@
     // HUD Toggle
     function toggleHUD() {
       const leftHud = document.querySelector('.hud-left');
-      const rightHud = document.querySelector('.hud-right');
       if (leftHud) leftHud.classList.toggle('hud-hidden');
-      if (rightHud) rightHud.classList.toggle('hud-hidden');
     }
 
     // Fullscreen Toggle
@@ -790,16 +682,6 @@
       scoreDisplay.innerText = liveScore.toFixed(1);
       dampDisplay.innerText = `진폭 감쇄 계수: K = ${currentDamp.toFixed(2)}`;
 
-      valSpeed.innerText = currNoiseSpeed.toFixed(2);
-      valAmp.innerText = currNoiseAmp.toFixed(2);
-      valSuction.innerText = currSuction.toFixed(2);
-      valRot.innerText = currRotation.toFixed(2);
-
-      barSpeed.style.width = `${Math.min(100, (currNoiseSpeed / 1.5) * 100)}%`;
-      barAmp.style.width = `${Math.min(100, (currNoiseAmp / 0.95) * 100)}%`;
-      barSuction.style.width = `${Math.min(100, (currSuction / 0.8) * 100)}%`;
-      barRot.style.width = `${Math.min(100, (currRotation / 0.45) * 100)}%`;
-
       // 4-Stage Calibrated Spectrum based on Effective Threat Level (effScore)
       const riskRatio = Math.min(1.0, Math.max(0.0, effScore / 100.0));
 
@@ -829,12 +711,6 @@
         baseG = 0.22 + (0.08 - 0.22) * k;
         baseB = 0.08 + (0.08 - 0.08) * k;
       }
-
-      const gaugeColor = `rgb(${Math.round(baseR * 255)}, ${Math.round(baseG * 255)}, ${Math.round(baseB * 255)})`;
-      barSpeed.style.backgroundColor = gaugeColor;
-      barAmp.style.backgroundColor = gaugeColor;
-      barSuction.style.backgroundColor = gaugeColor;
-      barRot.style.backgroundColor = gaugeColor;
 
       const time = clock.getElapsedTime() * currNoiseSpeed;
       const posAttr = geometry.attributes.position;
