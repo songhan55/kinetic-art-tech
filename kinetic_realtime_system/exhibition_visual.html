@@ -148,20 +148,6 @@
       margin-top: 2px;
     }
 
-    .event-list {
-      font-size: 12px;
-      line-height: 1.7;
-      color: #cbd5e1;
-      font-family: 'JetBrains Mono', monospace;
-    }
-
-    .event-list div {
-      display: flex;
-      justify-content: space-between;
-      border-bottom: 1px dashed rgba(255, 255, 255, 0.08);
-      padding: 4px 0;
-    }
-
     /* Right HUD Control Panel */
     .hud-right {
       position: absolute;
@@ -385,21 +371,14 @@
 
     <div class="data-card">
       <div class="data-label">실시간 전쟁·분쟁 관심도 지수</div>
-      <div class="data-value-large" id="score-display">24.5</div>
-      <div class="data-sub" id="score-sub">(GDELT Global News Volume Scale / Max 20%)</div>
+      <div class="data-value-large" id="score-display">42.0</div>
+      <div class="data-sub" id="score-sub">(오픈 소셜 실시간 스트림 스케일 / Max 100%)</div>
     </div>
 
     <div class="data-card">
       <div class="data-label">관람객 거리 감쇄 피드백</div>
       <div style="font-size: 15px; font-weight: 700; color: var(--accent-gold);" id="dist-display">3.0m (원거리 파도)</div>
       <div class="data-sub" id="damp-display">진폭 감쇄 계수: K = 1.00</div>
-    </div>
-
-    <div class="event-list">
-      <div><span>날짜 (Date)</span><span id="txt-date">2026-08-14</span></div>
-      <div><span>사망자 지수 (Fatalities)</span><span id="txt-fatalities">4명</span></div>
-      <div><span>전체 사건 (Events)</span><span id="txt-events">47건</span></div>
-      <div><span>폭발/공격 (Violence)</span><span id="txt-violence">43건</span></div>
     </div>
   </div>
 
@@ -513,11 +492,6 @@
     const barSuction = document.getElementById('bar-suction');
     const barRot = document.getElementById('bar-rot');
 
-    const txtDate = document.getElementById('txt-date');
-    const txtFatalities = document.getElementById('txt-fatalities');
-    const txtEvents = document.getElementById('txt-events');
-    const txtViolence = document.getElementById('txt-violence');
-
     // Check URL Query Parameter: ?mode=ukraine2022 or ?mode=iran2024 or ?crisis=true
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('mode') === 'iran2024' || urlParams.get('mode') === 'iran') {
@@ -549,11 +523,6 @@
 
         topTitle.innerText = 'CRITICAL CRISIS (2022.02 Russia-Ukraine War Outbreak)';
         topTitle.style.color = '#ef4444';
-
-        txtDate.innerText = '2022-02-24';
-        txtFatalities.innerText = '1,420명+';
-        txtEvents.innerText = '3,890건';
-        txtViolence.innerText = '3,650건';
       } else if (mode === 'iran') {
         if (btnModeIran) btnModeIran.classList.add('active');
 
@@ -569,11 +538,6 @@
 
         topTitle.innerText = 'MIDDLE EAST CRISIS (2024.04 US-Iran Escalation Eve)';
         topTitle.style.color = '#f97316';
-
-        txtDate.innerText = '2024-04-13';
-        txtFatalities.innerText = '320명+';
-        txtEvents.innerText = '1,840건';
-        txtViolence.innerText = '1,620건';
       } else {
         btnModeLive.classList.add('active');
 
@@ -670,16 +634,6 @@
         badgeStatus.innerText = 'SIMULATION';
         badgeStatus.style.color = '#38bdf8';
       }
-
-      const now = new Date();
-      txtDate.innerText = now.toISOString().split('T')[0];
-      const fatalities = Math.floor(2 + (liveScore / 100.0) * 18);
-      const events = Math.floor(30 + (liveScore / 100.0) * 80);
-      const violence = Math.floor(events * 0.85);
-
-      txtFatalities.innerText = `${fatalities}명`;
-      txtEvents.innerText = `${events}건`;
-      txtViolence.innerText = `${violence}건`;
     }
 
     fetchLiveScore();
