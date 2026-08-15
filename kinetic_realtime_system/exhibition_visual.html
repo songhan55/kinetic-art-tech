@@ -396,6 +396,8 @@
 
     const btnModeIran = document.getElementById('btn-mode-iran');
 
+    let lastKnownLiveScore = 31.5;
+
     function setScenario(mode) {
       currentMode = mode;
       btnModeLive.classList.remove('active');
@@ -406,6 +408,9 @@
         btnModeCrisis.classList.add('active');
 
         liveScore = 98.4;
+        targetDamp = 1.0;
+        currentDamp = 1.0;
+
         scoreDisplay.innerText = '98.4';
         scoreDisplay.style.color = '#ef4444';
         scoreSub.innerText = '⚠️ 역사상 최고치 분쟁 언급량 (2022.02 러-우 전쟁 전면 침공 직전)';
@@ -421,6 +426,9 @@
         if (btnModeIran) btnModeIran.classList.add('active');
 
         liveScore = 95.2;
+        targetDamp = 1.0;
+        currentDamp = 1.0;
+
         scoreDisplay.innerText = '95.2';
         scoreDisplay.style.color = '#f97316';
         scoreSub.innerText = '🚨 오픈 소셜 언급량 폭증 (2024.04 미국-이란 중동 확전 위기)';
@@ -435,8 +443,11 @@
       } else {
         btnModeLive.classList.add('active');
 
+        // 과거 시나리오에서 복귀 시 지연 없이 즉시 실시간 원래 점수로 스냅(Snap)!
+        liveScore = lastKnownLiveScore;
+        scoreDisplay.innerText = liveScore.toFixed(1);
         scoreDisplay.style.color = '#f8fafc';
-        scoreSub.innerText = '(오픈 소셜 실시간 스트림 스케일 / Max 100%)';
+        scoreSub.innerText = '(글로벌 7대 분쟁 실시간 스트림)';
         badgeStatus.innerText = 'LIVE OK';
         badgeStatus.style.color = '#22c55e';
         statusDot.style.backgroundColor = '#22c55e';
@@ -444,7 +455,7 @@
         topTitle.innerText = '3D Generative Particle Sphere Display (60fps)';
         topTitle.style.color = '#f8fafc';
 
-        fetchLiveScore();
+        fetchLiveScore(true); // 즉각 재동기화
       }
       updateTargetDamp();
     }
@@ -457,22 +468,24 @@
     });
 
     function updateTargetDamp() {
-      if (currentMode === 'crisis') {
-        targetDamp = 1.0; // Distance-independent extreme motion!
-        distDisplay.innerText = `${viewerDist.toFixed(1)}m (극단 모드: 거리 무관 최대 출력)`;
-        distDisplay.style.color = '#ef4444';
-        dampDisplay.innerText = `진폭 감쇄 계수: K = 1.00 (최대 고정)`;
+      if (currentMode === 'crisis' || currentMode === 'ukraine' || currentMode === 'iran') {
+        // 이미 일어난 과거 사건은 관람객의 접근으로 감쇄/변경 불가 (100% 고정)
+        targetDamp = 1.0;
+        currentDamp = 1.0;
+        distDisplay.innerText = `${viewerDist.toFixed(1)}m [🔒 역사적 기정사실: 개입 불가]`;
+        distDisplay.style.color = (currentMode === 'iran') ? '#f97316' : '#ef4444';
+        dampDisplay.innerText = `진폭 감쇄: 불가 (K = 1.00 고정 / 이미 발발한 과거)`;
       } else {
         if (viewerDist < 1.5) {
           targetDamp = 0.15 + (viewerDist / 1.5) * 0.25;
-          distDisplay.innerText = `${viewerDist.toFixed(1)}m (근접 - 평화/진정 상태)`;
+          distDisplay.innerText = `${viewerDist.toFixed(1)}m (근접 - 전쟁 억제 및 진정)`;
           distDisplay.style.color = '#22c55e';
-          dampDisplay.innerText = `진폭 감쇄 계수: K = ${currentDamp.toFixed(2)}`;
+          dampDisplay.innerText = `진폭 감쇄 계수: K = ${currentDamp.toFixed(2)} (관심 반영)`;
         } else {
           targetDamp = 1.0;
-          distDisplay.innerText = `${viewerDist.toFixed(1)}m (원거리 - 파도 고조)`;
+          distDisplay.innerText = `${viewerDist.toFixed(1)}m (원거리 - 실시간 파도)`;
           distDisplay.style.color = '#cba258';
-          dampDisplay.innerText = `진폭 감쇄 계수: K = 1.00`;
+          dampDisplay.innerText = `진폭 감쇄 계수: K = 1.00 (날것 데이터)`;
         }
       }
     }
@@ -485,7 +498,7 @@
     const CRISIS_TAGS = ['war', 'conflict', 'ukraine', 'iran', 'missile', 'military', 'crisis'];
     let liveTagIdx = 0;
 
-    async function fetchLiveScore() {
+    async function fetchLiveScore(isReset = false) {
       if (currentMode === 'crisis' || currentMode === 'iran' || currentMode === 'ukraine') return;
 
       badgeStatus.innerText = '수신 중...';
@@ -510,8 +523,13 @@
           if (Array.isArray(posts) && posts.length > 0) {
             // 만점 기준치 32% 확장 스케일링 (10건 유입 시 약 31.5점)
             const incoming = 20.0 + (posts.length * 1.15);
-            liveScore = (liveScore * 0.82) + (incoming * 0.18);
+            if (isReset) {
+              liveScore = incoming; // 즉시 복귀 스냅!
+            } else {
+              liveScore = (liveScore * 0.82) + (incoming * 0.18);
+            }
             liveScore = Math.min(95, Math.max(12, liveScore));
+            lastKnownLiveScore = liveScore;
 
             scoreDisplay.innerText = liveScore.toFixed(1);
             scoreSub.innerText = `🟢 #${targetTag} 실시간 스트림 연동 (${posts.length}건 유입)`;
@@ -535,7 +553,11 @@
             const data = await res.json();
             if (data && data.timeline && data.timeline[0] && data.timeline[0].data) {
               const rawValue = data.timeline[0].data.slice(-1)[0].value || 8.5;
-              liveScore = Math.min(95, Math.max(12, (rawValue / 32.0) * 100));
+              const calculated = Math.min(95, Math.max(12, (rawValue / 32.0) * 100));
+              if (isReset) liveScore = calculated;
+              else liveScore = (liveScore * 0.82) + (calculated * 0.18);
+
+              lastKnownLiveScore = liveScore;
               scoreDisplay.innerText = liveScore.toFixed(1);
               scoreSub.innerText = '🟢 GDELT 글로벌 7대 분쟁 뉴스 빅데이터';
               badgeStatus.innerText = 'LIVE OK';
@@ -549,7 +571,9 @@
       if (!success) {
         const now = new Date();
         const minVal = now.getMinutes() + now.getSeconds() / 60;
-        liveScore = 31.5 + Math.sin(minVal * 0.3) * 2.5;
+        const base = 31.5 + Math.sin(minVal * 0.3) * 2.5;
+        if (isReset) liveScore = base;
+        lastKnownLiveScore = liveScore;
         scoreDisplay.innerText = liveScore.toFixed(1);
         scoreSub.innerText = '🟡 글로벌 지정학적 일상 베이스라인 (30점대 안착)';
         badgeStatus.innerText = 'REALTIME';
@@ -665,10 +689,14 @@
     function animate() {
       requestAnimationFrame(animate);
 
-      // Smooth Frame LERP for Damping Factor
-      currentDamp += (targetDamp - currentDamp) * 0.035;
+      // Smooth Frame LERP for Damping Factor (실시간 모드일 때만 관객 감쇄 동작)
+      if (currentMode === 'live') {
+        currentDamp += (targetDamp - currentDamp) * 0.035;
+      } else {
+        currentDamp = 1.0;
+      }
 
-      const effScore = liveScore * currentDamp;
+      const effScore = (currentMode === 'live') ? (liveScore * currentDamp) : liveScore;
       const targetSpeed = 0.15 + (effScore / 100.0) * 1.35;
       const targetAmp = 0.10 + (effScore / 100.0) * 0.85;
       const targetSuction = 0.10 + (effScore / 100.0) * 0.70;
