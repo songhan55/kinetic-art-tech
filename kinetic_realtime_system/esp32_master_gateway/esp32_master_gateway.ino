@@ -382,12 +382,12 @@ void dataFetchTask(void *pvParameters) {
                 if (cleanText.length() > 55) cleanText = cleanText.substring(0, 55) + "...";
                 lastPostSnippet = "#" + String(targetTag) + " | " + cleanText;
 
-                // 7개 키워드 확장 스케일링 정규화 (일상 38~42점, 위기 시 90점대)
-                float incomingScore = 27.0f + (posts.size() * 1.35f); // 10건 유입 시 40.5점
-                sharedScore = (sharedScore * 0.80f) + (incomingScore * 0.20f);
-                sharedScore = constrain(sharedScore, 15.0f, 98.4f);
+                // 만점 기준치를 32%로 대폭 상향하여 일상 점수를 더 차분하게 조정 (일상 28~34점)
+                float incomingScore = 20.0f + (posts.size() * 1.15f); // 10건 유입 시 31.5점
+                sharedScore = (sharedScore * 0.82f) + (incomingScore * 0.18f);
+                sharedScore = constrain(sharedScore, 10.0f, 98.4f);
 
-                Serial.printf("\n[📡 실시간 #%s 수집] 글 수: %d건 | 정규화 긴장도: %.1f점 -> 슬레이브 1ms 전송!\n", targetTag, posts.size(), sharedScore);
+                Serial.printf("\n[📡 실시간 #%s 수집] 글 수: %d건 | 긴장도: %.1f점 -> 슬레이브 1ms 전송!\n", targetTag, posts.size(), sharedScore);
                 sendEspNowPacket(0);
               }
             }
