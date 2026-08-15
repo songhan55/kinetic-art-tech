@@ -145,7 +145,7 @@ const char DASHBOARD_HTML[] PROGMEM = R"rawliteral(
         <span id="txt-state" class="stat-val" style="color: var(--accent-green);">RUNNING</span>
       </div>
       <div class="stat-row">
-        <span style="color: var(--text-muted);">실시간 소셜 긴장도 지수</span>
+        <span style="color: var(--text-muted);">실시간 국제정세 긴장도</span>
         <span id="txt-score" class="stat-val">- 점</span>
       </div>
       <div class="stat-row">
