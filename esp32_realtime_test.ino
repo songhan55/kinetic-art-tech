@@ -12,8 +12,8 @@
 #include <ArduinoJson.h>
 
 // ★ 사용하시는 와이파이 이름과 비밀번호로 변경해주세요 ★
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
+const char* ssid = "MIRR";
+const char* password = "mirr3411";
 
 // Data Refresh Interval (10초)
 const unsigned long FETCH_INTERVAL = 10000;
