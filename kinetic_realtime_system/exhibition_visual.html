@@ -492,16 +492,16 @@
       }
     }
 
-    updateTargetDamp();
-
     // ----------------------------------------------------
-    // 마스터 ESP32 초음파 센서 실시간 하드웨어 자동 연동 (192.168.0.20)
+    // 마스터 ESP32 초음파 센서 실시간 하드웨어 초고속 연동 (120ms 주기)
     // ----------------------------------------------------
+    let isPolling = false;
     async function syncHardwareTelemetry() {
-      if (currentMode !== 'live') return;
+      if (currentMode !== 'live' || isPolling) return;
+      isPolling = true;
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 900);
+        const timeoutId = setTimeout(() => controller.abort(), 250);
         const res = await fetch('http://192.168.0.20/api/status', { signal: controller.signal });
         clearTimeout(timeoutId);
 
@@ -518,9 +518,11 @@
         }
       } catch (err) {
         // 센서 미연결 PC 브라우저 데모 시 수동 슬라이더 모드 유지
+      } finally {
+        isPolling = false;
       }
     }
-    setInterval(syncHardwareTelemetry, 1000);
+    setInterval(syncHardwareTelemetry, 120); // 초당 약 8회 초고속 실시간 폴링!
 
     // ----------------------------------------------------
     // 2. Realtime Multi-Source Global Crisis Fetch
@@ -719,9 +721,9 @@
     function animate() {
       requestAnimationFrame(animate);
 
-      // Smooth Frame LERP for Damping Factor (실시간 모드일 때만 관객 감쇄 동작)
+      // Smooth Frame LERP for Damping Factor (즉각적이면서도 부드러운 60fps 추종)
       if (currentMode === 'live') {
-        currentDamp += (targetDamp - currentDamp) * 0.035;
+        currentDamp += (targetDamp - currentDamp) * 0.12;
       } else {
         currentDamp = 1.0;
       }
@@ -732,10 +734,10 @@
       const targetSuction = 0.10 + (effScore / 100.0) * 0.70;
       const targetRot = 0.05 + (effScore / 100.0) * 0.40;
 
-      currNoiseSpeed += (targetSpeed - currNoiseSpeed) * 0.05;
-      currNoiseAmp += (targetAmp - currNoiseAmp) * 0.05;
-      currSuction += (targetSuction - currSuction) * 0.05;
-      currRotation += (targetRot - currRotation) * 0.05;
+      currNoiseSpeed += (targetSpeed - currNoiseSpeed) * 0.10;
+      currNoiseAmp += (targetAmp - currNoiseAmp) * 0.10;
+      currSuction += (targetSuction - currSuction) * 0.10;
+      currRotation += (targetRot - currRotation) * 0.10;
 
       scoreDisplay.innerText = liveScore.toFixed(1);
       dampDisplay.innerText = `진폭 감쇄 계수: K = ${currentDamp.toFixed(2)}`;
