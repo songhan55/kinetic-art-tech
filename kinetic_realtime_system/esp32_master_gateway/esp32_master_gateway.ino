@@ -57,6 +57,7 @@ volatile float rawDistanceMeters = 3.0;
 volatile float filteredDistanceMeters = 3.0;
 volatile float currentDampFactor = 1.0;
 unsigned long lastUltrasonicPing = 0;
+unsigned long lastDebugPrint = 0;
 
 float smoothedScore = 31.5;
 float currentAmplitude = 8.5;
@@ -228,24 +229,27 @@ const char DASHBOARD_HTML[] PROGMEM = R"rawliteral(
 // =========================================================================
 float readUltrasonicDistance() {
   digitalWrite(TRIG_PIN, LOW);
-  delayMicroseconds(2);
+  delayMicroseconds(4);
   digitalWrite(TRIG_PIN, HIGH);
   delayMicroseconds(10);
   digitalWrite(TRIG_PIN, LOW);
 
-  // 최대 25ms (약 4.3m) 타임아웃
-  long duration = pulseIn(ECHO_PIN, HIGH, 25000);
-  if (duration == 0) {
-    return 3.5; // 반사파 미수신(원거리) 시 3.5m 기본값
+  // HC-SR04 에코 수신 (최대 30ms = 약 5.1m 타임아웃)
+  unsigned long duration = pulseIn(ECHO_PIN, HIGH, 30000);
+  if (duration == 0 || duration >= 24000) {
+    return 3.0f; // 반사파 미수신(원거리 또는 장애물 없음) 시 즉각 3.0m 반환
   }
   float distMeters = (duration * 0.0343f) / 2.0f / 100.0f;
-  return constrain(distMeters, 0.15f, 4.0f);
+  if (distMeters < 0.05f || distMeters > 3.5f) {
+    return 3.0f;
+  }
+  return distMeters;
 }
 
 float calculateDampingFactor(float dist) {
-  if (dist >= 2.0f) return 1.0f;
-  if (dist <= 0.3f) return 0.15f;
-  return 0.15f + ((dist - 0.3f) / 1.7f) * 0.85f;
+  if (dist >= 1.5f) return 1.0f;  // 1.5m 이상 멀어지면 100% 완전 파도 즉시 복귀!
+  if (dist <= 0.3f) return 0.15f; // 0.3m 초근접 시 15% 평화 감쇄
+  return 0.15f + ((dist - 0.3f) / 1.2f) * 0.85f;
 }
 
 void sendEspNowPacket(uint8_t cmdCode = 0) {
@@ -501,32 +505,44 @@ void setup() {
 void loop() {
   unsigned long currentMillis = millis();
 
-  // 0. 0.1초(100ms)마다 초음파 관람객 실시간 거리 측정 & 노이즈 필터링
-  if (currentMillis - lastUltrasonicPing >= 100) {
+  // 0. 0.08초(80ms)마다 초음파 관람객 실시간 거리 측정 & 초고속 복귀 필터
+  if (currentMillis - lastUltrasonicPing >= 80) {
     lastUltrasonicPing = currentMillis;
     float measuredDist = readUltrasonicDistance();
-    // 지수 이동평균(EMA) 필터로 초음파 튐 노이즈 완벽 제거
-    filteredDistanceMeters = (filteredDistanceMeters * 0.70f) + (measuredDist * 0.30f);
+
+    // 멀어질 때(measuredDist > filtered)는 즉각(0.55 가중치) 팽창 복귀, 다가올 때는 부드럽게 감쇄
+    float alpha = (measuredDist > filteredDistanceMeters) ? 0.55f : 0.35f;
+    filteredDistanceMeters = (filteredDistanceMeters * (1.0f - alpha)) + (measuredDist * alpha);
     currentDampFactor = calculateDampingFactor(filteredDistanceMeters);
+
+    // 진폭 즉시 연산 (손을 떼는 즉시 0.08초 만에 모터 진폭 복귀!)
+    if (isPaused) {
+      currentAmplitude = 0.0f;
+    } else {
+      float baseAmp = 5.0f + (smoothedScore / 100.0f) * 15.0f;
+      currentAmplitude = baseAmp * currentDampFactor;
+    }
   }
 
-  // 1. 0.5초마다 점수 스무딩 & 초음파 거리 감쇄 계수(K) 적용
+  // 1. 0.5초마다 점수 스무딩 & 기본 속도 갱신
   if (currentMillis - lastScoreUpdate >= 500) {
     lastScoreUpdate = currentMillis;
 
-    if (isPaused) {
-      currentAmplitude = 0.0;
-    } else {
+    if (!isPaused) {
       float currentTarget = sharedScore;
       smoothedScore = smoothedScore * 0.85f + currentTarget * 0.15f;
-      float baseAmp = 5.0f + (smoothedScore / 100.0f) * 15.0f;
-      // 실시간 관람객 접근 감쇄 적용 (0.3m 근접 시 최대 85% 감쇄 -> ±2~3도 미세 스윙)
-      currentAmplitude = baseAmp * currentDampFactor;
       currentSpeed = 1.5f + (smoothedScore / 100.0f) * 3.5f;
     }
   }
 
-  // 2. 0.05초(50ms)마다 슬레이브들에게 위상 및 감쇄 계수 동기화 패킷 전송
+  // 2. 1.2초마다 초음파 실측치 시리얼 디버그 출력
+  if (currentMillis - lastDebugPrint >= 1200) {
+    lastDebugPrint = currentMillis;
+    Serial.printf("[📡 초음파] 거리: %.2fm | 감쇄 K: %.2f | 진폭: ±%.1f°\n",
+      filteredDistanceMeters, currentDampFactor, currentAmplitude);
+  }
+
+  // 3. 0.05초(50ms)마다 슬레이브들에게 위상 및 감쇄 계수 동기화 패킷 전송
   if (currentMillis - lastEspNowSend >= 50) {
     lastEspNowSend = currentMillis;
     if (isWifiConnected) {
@@ -534,7 +550,7 @@ void loop() {
     }
   }
 
-  // 3. 초당 50회(20ms) 연속 서보 구동
+  // 4. 초당 50회(20ms) 연속 서보 구동
   if (currentMillis - lastMotionUpdate >= 20) {
     lastMotionUpdate = currentMillis;
 
