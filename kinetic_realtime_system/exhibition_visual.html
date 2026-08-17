@@ -476,9 +476,11 @@
         distDisplay.style.color = (currentMode === 'iran') ? '#f97316' : '#ef4444';
         dampDisplay.innerText = `진폭 감쇄: 불가 (K = 1.00 고정 / 이미 발발한 과거)`;
       } else {
-        if (viewerDist < 1.5) {
-          targetDamp = 0.15 + (viewerDist / 1.5) * 0.25;
-          distDisplay.innerText = `${viewerDist.toFixed(1)}m (근접 - 전쟁 억제 및 진정)`;
+        if (viewerDist < 2.0) {
+          if (viewerDist <= 0.3) targetDamp = 0.15;
+          else targetDamp = 0.15 + ((viewerDist - 0.3) / 1.7) * 0.85;
+
+          distDisplay.innerText = `${viewerDist.toFixed(1)}m (근접 - 전쟁 억제 및 평화 진정)`;
           distDisplay.style.color = '#22c55e';
           dampDisplay.innerText = `진폭 감쇄 계수: K = ${currentDamp.toFixed(2)} (관심 반영)`;
         } else {
@@ -491,6 +493,34 @@
     }
 
     updateTargetDamp();
+
+    // ----------------------------------------------------
+    // 마스터 ESP32 초음파 센서 실시간 하드웨어 자동 연동 (192.168.0.20)
+    // ----------------------------------------------------
+    async function syncHardwareTelemetry() {
+      if (currentMode !== 'live') return;
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 900);
+        const res = await fetch('http://192.168.0.20/api/status', { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+          const hw = await res.json();
+          if (hw.dist !== undefined) {
+            viewerDist = hw.dist;
+            distSlider.value = viewerDist;
+            sliderValTxt.innerText = `${viewerDist.toFixed(1)}m (📡 센서 실측)`;
+            updateTargetDamp();
+            badgeStatus.innerText = 'HW LIVE OK';
+            badgeStatus.style.color = '#22c55e';
+          }
+        }
+      } catch (err) {
+        // 센서 미연결 PC 브라우저 데모 시 수동 슬라이더 모드 유지
+      }
+    }
+    setInterval(syncHardwareTelemetry, 1000);
 
     // ----------------------------------------------------
     // 2. Realtime Multi-Source Global Crisis Fetch

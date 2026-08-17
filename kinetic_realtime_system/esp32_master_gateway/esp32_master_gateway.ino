@@ -13,10 +13,14 @@
 #include "soc/rtc_cntl_reg.h"
 
 // =========================================================================
-// [1. 핀 배선 및 모터 파라미터]
+// [1. 핀 배선 및 모터/센서 파라미터]
 // =========================================================================
 const int SERVO_PIN = 18;       // 서보 신호선: GPIO 18
 const float BASE_ANGLE = 150.0; // 기본 중립 위치: 150도
+
+// HC-SR04 초음파 거리 센서 핀 배선
+const int TRIG_PIN = 5;         // 초음파 트리거 펄스 출력 (GPIO 5)
+const int ECHO_PIN = 19;        // 반사 에코 수신 입력 (GPIO 19)
 
 Servo singleServo;
 WebServer server(80);
@@ -30,8 +34,10 @@ const char* password = "mirr3411";
 uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 typedef struct struct_message {
-  float score;        // 실시간 소셜 지수 (0 ~ 100)
+  float score;        // 실시간 국제정세 긴장도 (0 ~ 100)
   float wavePhase;    // 파도 위상 (0.0 ~ 6.28)
+  float dampFactor;   // 초음파 거리 감쇄 계수 K (0.15 ~ 1.00)
+  float viewerDist;   // 관람객 실측 거리 (m)
   bool isPaused;      // 긴급 정지 여부
   uint8_t cmd;        // 0: 일반, 1: 자가진단 스윙, 2: 재부팅
 } struct_message;
@@ -40,15 +46,21 @@ struct_message txData;
 
 // 마스터 상태 변수
 volatile bool isPaused = false;
-volatile float sharedScore = 42.0;
+volatile float sharedScore = 31.5;
 volatile bool isWifiConnected = false;
 String lastPostSnippet = "System Initialized";
 String lastPostTime = "N/A";
 String localIPStr = "Connecting...";
 
-float smoothedScore = 42.0;
-float currentAmplitude = 11.3;
-float currentSpeed = 2.9;
+// 초음파 거리 및 감쇄 변수
+volatile float rawDistanceMeters = 3.0;
+volatile float filteredDistanceMeters = 3.0;
+volatile float currentDampFactor = 1.0;
+unsigned long lastUltrasonicPing = 0;
+
+float smoothedScore = 31.5;
+float currentAmplitude = 8.5;
+float currentSpeed = 2.5;
 float wavePhase = 0.0;
 unsigned long lastMotionUpdate = 0;
 unsigned long lastScoreUpdate = 0;
@@ -149,6 +161,14 @@ const char DASHBOARD_HTML[] PROGMEM = R"rawliteral(
         <span id="txt-score" class="stat-val">- 점</span>
       </div>
       <div class="stat-row">
+        <span style="color: var(--text-muted);">초음파 센서 실측 거리</span>
+        <span id="txt-dist" class="stat-val" style="color: var(--accent-gold);">- m</span>
+      </div>
+      <div class="stat-row">
+        <span style="color: var(--text-muted);">관람객 감쇄 계수 (K)</span>
+        <span id="txt-damp" class="stat-val" style="color: var(--accent-green);">-</span>
+      </div>
+      <div class="stat-row">
         <span style="color: var(--text-muted);">전체 모터 스윙 진폭</span>
         <span id="txt-amp" class="stat-val">-</span>
       </div>
@@ -185,6 +205,8 @@ const char DASHBOARD_HTML[] PROGMEM = R"rawliteral(
         stateTxt.style.color = "var(--accent-green)";
       }
       document.getElementById('txt-score').innerText = data.score.toFixed(1) + " 점";
+      document.getElementById('txt-dist').innerText = (data.dist !== undefined ? data.dist.toFixed(2) : "3.00") + " m";
+      document.getElementById('txt-damp').innerText = "K = " + (data.damp !== undefined ? data.damp.toFixed(2) : "1.00") + ((data.damp < 0.85) ? " (관심 진정)" : " (날것 데이터)");
       document.getElementById('txt-amp').innerText = "±" + data.amp.toFixed(1) + "° (" + (150 - data.amp).toFixed(1) + "° ~ " + (150 + data.amp).toFixed(1) + "°)";
       document.getElementById('txt-post').innerText = `[${data.time}] "${data.post}"`;
     }
@@ -202,11 +224,35 @@ const char DASHBOARD_HTML[] PROGMEM = R"rawliteral(
 )rawliteral";
 
 // =========================================================================
-// [4. ESP-NOW 무선 발사 함수]
+// [4. 초음파 센서 계측 및 ESP-NOW 무선 발사 함수]
 // =========================================================================
+float readUltrasonicDistance() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  // 최대 25ms (약 4.3m) 타임아웃
+  long duration = pulseIn(ECHO_PIN, HIGH, 25000);
+  if (duration == 0) {
+    return 3.5; // 반사파 미수신(원거리) 시 3.5m 기본값
+  }
+  float distMeters = (duration * 0.0343f) / 2.0f / 100.0f;
+  return constrain(distMeters, 0.15f, 4.0f);
+}
+
+float calculateDampingFactor(float dist) {
+  if (dist >= 2.0f) return 1.0f;
+  if (dist <= 0.3f) return 0.15f;
+  return 0.15f + ((dist - 0.3f) / 1.7f) * 0.85f;
+}
+
 void sendEspNowPacket(uint8_t cmdCode = 0) {
   txData.score = smoothedScore;
   txData.wavePhase = wavePhase;
+  txData.dampFactor = currentDampFactor;
+  txData.viewerDist = filteredDistanceMeters;
   txData.isPaused = isPaused;
   txData.cmd = cmdCode;
 
@@ -225,6 +271,8 @@ void handleStatus() {
   doc["role"] = "Master Gateway (C to C)";
   doc["paused"] = isPaused;
   doc["score"] = smoothedScore;
+  doc["dist"] = filteredDistanceMeters;
+  doc["damp"] = currentDampFactor;
   doc["amp"] = currentAmplitude;
   doc["phase"] = wavePhase;
   doc["post"] = lastPostSnippet;
@@ -423,6 +471,11 @@ void setup() {
   ESP32PWM::allocateTimer(2);
   ESP32PWM::allocateTimer(3);
 
+  // 초음파 센서 핀 모드 초기화
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  digitalWrite(TRIG_PIN, LOW);
+
   singleServo.setPeriodHertz(50);
   singleServo.attach(SERVO_PIN, 500, 2500);
 
@@ -448,7 +501,16 @@ void setup() {
 void loop() {
   unsigned long currentMillis = millis();
 
-  // 1. 0.5초마다 점수 스무딩
+  // 0. 0.1초(100ms)마다 초음파 관람객 실시간 거리 측정 & 노이즈 필터링
+  if (currentMillis - lastUltrasonicPing >= 100) {
+    lastUltrasonicPing = currentMillis;
+    float measuredDist = readUltrasonicDistance();
+    // 지수 이동평균(EMA) 필터로 초음파 튐 노이즈 완벽 제거
+    filteredDistanceMeters = (filteredDistanceMeters * 0.70f) + (measuredDist * 0.30f);
+    currentDampFactor = calculateDampingFactor(filteredDistanceMeters);
+  }
+
+  // 1. 0.5초마다 점수 스무딩 & 초음파 거리 감쇄 계수(K) 적용
   if (currentMillis - lastScoreUpdate >= 500) {
     lastScoreUpdate = currentMillis;
 
@@ -457,12 +519,14 @@ void loop() {
     } else {
       float currentTarget = sharedScore;
       smoothedScore = smoothedScore * 0.85f + currentTarget * 0.15f;
-      currentAmplitude = 5.0f + (smoothedScore / 100.0f) * 15.0f;
+      float baseAmp = 5.0f + (smoothedScore / 100.0f) * 15.0f;
+      // 실시간 관람객 접근 감쇄 적용 (0.3m 근접 시 최대 85% 감쇄 -> ±2~3도 미세 스윙)
+      currentAmplitude = baseAmp * currentDampFactor;
       currentSpeed = 1.5f + (smoothedScore / 100.0f) * 3.5f;
     }
   }
 
-  // 2. 0.05초(50ms)마다 슬레이브들에게 위상 동기화 패킷 전송
+  // 2. 0.05초(50ms)마다 슬레이브들에게 위상 및 감쇄 계수 동기화 패킷 전송
   if (currentMillis - lastEspNowSend >= 50) {
     lastEspNowSend = currentMillis;
     if (isWifiConnected) {

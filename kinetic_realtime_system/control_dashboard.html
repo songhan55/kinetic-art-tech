@@ -304,6 +304,14 @@
           <span id="txt-score" class="stat-val">- 점</span>
         </div>
         <div class="stat-row">
+          <span style="color: var(--text-muted);">초음파 센서 실측 거리</span>
+          <span id="txt-dist" class="stat-val" style="color: var(--accent-gold);">- m</span>
+        </div>
+        <div class="stat-row">
+          <span style="color: var(--text-muted);">관람객 감쇄 계수 (K)</span>
+          <span id="txt-damp" class="stat-val" style="color: var(--accent-green);">-</span>
+        </div>
+        <div class="stat-row">
           <span style="color: var(--text-muted);">36개 모터 전체 동기화 진폭</span>
           <span id="txt-amp" class="stat-val">-</span>
         </div>
@@ -369,6 +377,8 @@
       }
 
       document.getElementById('txt-score').innerText = data.score.toFixed(1) + " 점";
+      document.getElementById('txt-dist').innerText = (data.dist !== undefined ? data.dist.toFixed(2) : "3.00") + " m";
+      document.getElementById('txt-damp').innerText = "K = " + (data.damp !== undefined ? data.damp.toFixed(2) : "1.00") + ((data.damp < 0.85) ? " (관심 진정)" : " (날것 데이터)");
       document.getElementById('txt-amp').innerText = "±" + data.amp.toFixed(1) + "° (" + (150 - data.amp).toFixed(1) + "° ~ " + (150 + data.amp).toFixed(1) + "°)";
       document.getElementById('txt-post').innerText = `[${data.time}] "${data.post}"`;
     }

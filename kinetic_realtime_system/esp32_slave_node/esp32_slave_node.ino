@@ -22,8 +22,10 @@ const char* password = "mirr3411";
 // [2. ESP-NOW 수신 패킷 구조체]
 // =========================================================================
 typedef struct struct_message {
-  float score;        // 실시간 소셜 지수 (0 ~ 100)
+  float score;        // 실시간 국제정세 긴장도 (0 ~ 100)
   float wavePhase;    // 마스터의 정확한 파도 위상 (0.0 ~ 6.28)
+  float dampFactor;   // 마스터 초음파 센서 거리 감쇄 계수 K (0.15 ~ 1.00)
+  float viewerDist;   // 관람객 실측 거리 (m)
   bool isPaused;      // 긴급 정지 여부
   uint8_t cmd;        // 0: 일반, 1: 자가진단 스윙, 2: 재부팅
 } struct_message;
@@ -31,13 +33,16 @@ typedef struct struct_message {
 struct_message rxData;
 
 volatile bool isPaused = false;
-volatile float targetScore = 42.0;
+volatile float targetScore = 31.5;
 volatile float masterPhase = 0.0;
+volatile float currentDampFactor = 1.0;
+volatile float currentViewerDist = 3.0;
 volatile unsigned long lastPacketTime = 0;
 
-float smoothedScore = 42.0;
-float currentAmplitude = 11.3;
-float currentSpeed = 2.9;
+float smoothedScore = 31.5;
+float smoothedDamp = 1.0;
+float currentAmplitude = 8.5;
+float currentSpeed = 2.5;
 float wavePhase = 0.0;
 unsigned long lastMotionUpdate = 0;
 
@@ -51,6 +56,8 @@ void onDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *incomingDat
 
     targetScore = rxData.score;
     masterPhase = rxData.wavePhase;
+    currentDampFactor = rxData.dampFactor;
+    currentViewerDist = rxData.viewerDist;
     isPaused = rxData.isPaused;
 
     // 마스터와 위상(wavePhase) 1ms 칼일치 동기화
@@ -119,12 +126,16 @@ void setup() {
 void loop() {
   unsigned long currentMillis = millis();
 
-  // 1. 점수 스무딩 & 진폭 계산
+  // 1. 점수 및 마스터 초음파 감쇄 계수(K) 스무딩
   smoothedScore = smoothedScore * 0.85f + targetScore * 0.15f;
+  smoothedDamp = smoothedDamp * 0.80f + currentDampFactor * 0.20f;
+
   if (isPaused) {
     currentAmplitude = 0.0;
   } else {
-    currentAmplitude = 5.0f + (smoothedScore / 100.0f) * 15.0f;
+    float baseAmp = 5.0f + (smoothedScore / 100.0f) * 15.0f;
+    // 마스터 초음파 센서 감쇄 계수 적용
+    currentAmplitude = baseAmp * smoothedDamp;
     currentSpeed = 1.5f + (smoothedScore / 100.0f) * 3.5f;
   }
 
