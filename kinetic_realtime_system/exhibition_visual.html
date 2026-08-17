@@ -477,8 +477,8 @@
         dampDisplay.innerText = `진폭 감쇄: 불가 (K = 1.00 고정 / 이미 발발한 과거)`;
       } else {
         if (viewerDist < 2.0) {
-          if (viewerDist <= 0.3) targetDamp = 0.15;
-          else targetDamp = 0.15 + ((viewerDist - 0.3) / 1.7) * 0.85;
+          if (viewerDist <= 0.2) targetDamp = 0.12;
+          else targetDamp = 0.12 + ((viewerDist - 0.2) / 1.8) * 0.88;
 
           distDisplay.innerText = `${viewerDist.toFixed(1)}m (근접 - 전쟁 억제 및 평화 진정)`;
           distDisplay.style.color = '#22c55e';

@@ -247,9 +247,10 @@ float readUltrasonicDistance() {
 }
 
 float calculateDampingFactor(float dist) {
-  if (dist >= 1.5f) return 1.0f;  // 1.5m 이상 멀어지면 100% 완전 파도 즉시 복귀!
-  if (dist <= 0.3f) return 0.15f; // 0.3m 초근접 시 15% 평화 감쇄
-  return 0.15f + ((dist - 0.3f) / 1.2f) * 0.85f;
+  // 0.2m(초근접) ~ 2.0m(원거리) 전 구간에 걸쳐 1mm 단위 완전 선형 연속 매핑
+  if (dist >= 2.0f) return 1.0f;
+  if (dist <= 0.2f) return 0.12f;
+  return 0.12f + ((dist - 0.2f) / 1.8f) * 0.88f;
 }
 
 void sendEspNowPacket(uint8_t cmdCode = 0) {
@@ -505,23 +506,15 @@ void setup() {
 void loop() {
   unsigned long currentMillis = millis();
 
-  // 0. 0.08초(80ms)마다 초음파 관람객 실시간 거리 측정 & 초고속 복귀 필터
-  if (currentMillis - lastUltrasonicPing >= 80) {
+  // 0. 0.06초(60ms)마다 초음파 관람객 실시간 거리 측정 & 초고속 선형 추종
+  if (currentMillis - lastUltrasonicPing >= 60) {
     lastUltrasonicPing = currentMillis;
     float measuredDist = readUltrasonicDistance();
 
-    // 멀어질 때(measuredDist > filtered)는 즉각(0.55 가중치) 팽창 복귀, 다가올 때는 부드럽게 감쇄
-    float alpha = (measuredDist > filteredDistanceMeters) ? 0.55f : 0.35f;
+    // 멀어질 때와 다가올 때 모두 튀지 않고 즉각 반응하는 지수 보간
+    float alpha = (measuredDist > filteredDistanceMeters) ? 0.45f : 0.35f;
     filteredDistanceMeters = (filteredDistanceMeters * (1.0f - alpha)) + (measuredDist * alpha);
     currentDampFactor = calculateDampingFactor(filteredDistanceMeters);
-
-    // 진폭 즉시 연산 (손을 떼는 즉시 0.08초 만에 모터 진폭 복귀!)
-    if (isPaused) {
-      currentAmplitude = 0.0f;
-    } else {
-      float baseAmp = 5.0f + (smoothedScore / 100.0f) * 15.0f;
-      currentAmplitude = baseAmp * currentDampFactor;
-    }
   }
 
   // 1. 0.5초마다 점수 스무딩 & 기본 속도 갱신
@@ -550,13 +543,18 @@ void loop() {
     }
   }
 
-  // 4. 초당 50회(20ms) 연속 서보 구동
+  // 4. 초당 50회(20ms) 연속 서보 구동 & 50Hz 프레임 단위 연속 LERP (계단 현상 완전 제거)
   if (currentMillis - lastMotionUpdate >= 20) {
     lastMotionUpdate = currentMillis;
 
     if (isPaused) {
       singleServo.write(BASE_ANGLE);
     } else {
+      // 50Hz(초당 50회) 프레임마다 진폭을 목표값으로 부드럽게 연속 보간 -> 1mm 단위의 아날로그 곡선!
+      float baseAmp = 5.0f + (smoothedScore / 100.0f) * 15.0f;
+      float targetAmp = baseAmp * currentDampFactor;
+      currentAmplitude += (targetAmp - currentAmplitude) * 0.08f;
+
       wavePhase += 0.025f * currentSpeed;
       if (wavePhase > 6.28318f * 100.0f) wavePhase = 0.0f;
 

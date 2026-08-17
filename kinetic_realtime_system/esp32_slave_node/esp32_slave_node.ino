@@ -129,23 +129,20 @@ void loop() {
   // 1. 점수 및 마스터 초음파 감쇄 계수(K) 스무딩
   smoothedScore = smoothedScore * 0.85f + targetScore * 0.15f;
   smoothedDamp = smoothedDamp * 0.80f + currentDampFactor * 0.20f;
+  currentSpeed = 1.5f + (smoothedScore / 100.0f) * 3.5f;
 
-  if (isPaused) {
-    currentAmplitude = 0.0;
-  } else {
-    float baseAmp = 5.0f + (smoothedScore / 100.0f) * 15.0f;
-    // 마스터 초음파 센서 감쇄 계수 적용
-    currentAmplitude = baseAmp * smoothedDamp;
-    currentSpeed = 1.5f + (smoothedScore / 100.0f) * 3.5f;
-  }
-
-  // 2. 초당 50회(20ms) 마스터와 100% 동기화된 연속 서보 구동
+  // 2. 초당 50회(20ms) 마스터와 100% 동기화된 연속 서보 구동 & 프레임 LERP
   if (currentMillis - lastMotionUpdate >= 20) {
     lastMotionUpdate = currentMillis;
 
     if (isPaused) {
       singleServo.write(BASE_ANGLE); // 150도 중립 안전 고정
     } else {
+      // 50Hz 프레임 단위 연속 진폭 보간
+      float baseAmp = 5.0f + (smoothedScore / 100.0f) * 15.0f;
+      float targetAmp = baseAmp * smoothedDamp;
+      currentAmplitude += (targetAmp - currentAmplitude) * 0.08f;
+
       wavePhase += 0.025f * currentSpeed;
       if (wavePhase > 6.28318f * 100.0f) wavePhase = 0.0f;
 
