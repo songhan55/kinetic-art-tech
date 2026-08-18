@@ -33,6 +33,8 @@ typedef struct struct_message {
 struct_message rxData;
 
 volatile bool isPaused = false;
+volatile bool isManualAngleMode = false;
+volatile float manualAngle = 150.0;
 volatile float targetScore = 31.5;
 volatile float masterPhase = 0.0;
 volatile float currentDampFactor = 1.0;
@@ -63,7 +65,15 @@ void onDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *incomingDat
     // 마스터와 위상(wavePhase) 1ms 칼일치 동기화
     wavePhase = masterPhase;
 
-    if (rxData.cmd == 1) {
+    if (rxData.cmd == 10) {
+      // 마스터에서 직접 각도 수동 제어 명령 수신
+      isManualAngleMode = true;
+      manualAngle = rxData.score;
+      singleServo.write(constrain((int)manualAngle, 0, 180));
+      Serial.printf("[🎯 마스터 수동 각도 수신] 슬레이브 서보 %.1f° 즉각 회전 완료!\n", manualAngle);
+    } else if (rxData.cmd == 0) {
+      isManualAngleMode = false;
+    } else if (rxData.cmd == 1) {
       Serial.println("[🎯 자가진단] 마스터 명령 수신 -> 슬레이브 진단 스윙 실행");
       singleServo.write(165);
       delay(300);
@@ -137,6 +147,8 @@ void loop() {
 
     if (isPaused) {
       singleServo.write(BASE_ANGLE); // 150도 중립 안전 고정
+    } else if (isManualAngleMode) {
+      singleServo.write(constrain((int)manualAngle, 0, 180));
     } else {
       // 50Hz 프레임 단위 연속 진폭 보간
       float baseAmp = 5.0f + (smoothedScore / 100.0f) * 15.0f;

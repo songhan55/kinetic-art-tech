@@ -46,6 +46,8 @@ struct_message txData;
 
 // 마스터 상태 변수
 volatile bool isPaused = false;
+volatile bool isManualAngleMode = false;
+volatile float manualAngle = 150.0;
 volatile float sharedScore = 31.5;
 volatile bool isWifiConnected = false;
 String lastPostSnippet = "System Initialized";
@@ -254,12 +256,12 @@ float calculateDampingFactor(float dist) {
 }
 
 void sendEspNowPacket(uint8_t cmdCode = 0) {
-  txData.score = smoothedScore;
+  txData.score = isManualAngleMode ? manualAngle : smoothedScore;
   txData.wavePhase = wavePhase;
   txData.dampFactor = currentDampFactor;
   txData.viewerDist = filteredDistanceMeters;
   txData.isPaused = isPaused;
-  txData.cmd = cmdCode;
+  txData.cmd = isManualAngleMode ? 10 : cmdCode;
 
   esp_now_send(broadcastAddress, (uint8_t *) &txData, sizeof(txData));
 }
@@ -549,6 +551,8 @@ void loop() {
 
     if (isPaused) {
       singleServo.write(BASE_ANGLE);
+    } else if (isManualAngleMode) {
+      singleServo.write(constrain((int)manualAngle, 0, 180));
     } else {
       // 50Hz(초당 50회) 프레임마다 진폭을 목표값으로 부드럽게 연속 보간 -> 1mm 단위의 아날로그 곡선!
       float baseAmp = 5.0f + (smoothedScore / 100.0f) * 15.0f;
@@ -561,6 +565,38 @@ void loop() {
       float targetAngle = BASE_ANGLE + sin(wavePhase) * currentAmplitude;
       targetAngle = constrain(targetAngle, 130.0f, 170.0f);
       singleServo.write(targetAngle);
+    }
+  }
+
+  // 5. 시리얼 모니터 각도 직접 입력 실시간 제어
+  if (Serial.available() > 0) {
+    String input = Serial.readStringUntil('\n');
+    input.trim();
+    input.toLowerCase();
+
+    if (input.length() > 0) {
+      if (input == "auto" || input == "live" || input == "a") {
+        isManualAngleMode = false;
+        Serial.println(F("\n🟢 [자동 모드 복귀] 실시간 국제정세 긴장도 파도 모드로 복귀했습니다."));
+        sendEspNowPacket(0);
+      } else if (input == "home" || input == "h") {
+        isManualAngleMode = true;
+        manualAngle = BASE_ANGLE;
+        singleServo.write(BASE_ANGLE);
+        Serial.println(F("\n🎯 [홈 포지션 복귀] 마스터 & 슬레이브 서보모터를 150도 중립으로 회전했습니다."));
+        sendEspNowPacket(10);
+      } else {
+        float angle = input.toFloat();
+        if (angle >= 0.0 && angle <= 180.0) {
+          isManualAngleMode = true;
+          manualAngle = angle;
+          singleServo.write(constrain((int)angle, 0, 180));
+          Serial.printf("\n🎯 [절대 각도 수동 제어] 마스터 & 슬레이브가 %.1f° 위치로 동시 회전했습니다! (복귀는 'auto' 입력)\n", angle);
+          sendEspNowPacket(10);
+        } else {
+          Serial.println(F("\n⚠️ 유효한 각도(0~180) 또는 'auto', 'home'을 입력해주세요!"));
+        }
+      }
     }
   }
 }

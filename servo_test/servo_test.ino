@@ -40,10 +40,12 @@ void moveConstantSpeed(float fromAngle, float toAngle, int msPerDegree) {
 
 void printPrompt() {
   Serial.println(F("--------------------------------------------------"));
-  Serial.println(F("👉 [입력 형식] : '각도 속도' 입력 후 Enter"));
-  Serial.println(F("   예시: 20 10  -> 150도 기준 ±20도, 1도당 10ms (완전 균일 등속도)"));
-  Serial.println(F("   예시: 20 0   -> 150도 기준 ±20도, 최고 속도 (0ms 지연)"));
-  Serial.println(F("   예시: 15 25  -> 150도 기준 ±15도, 1도당 25ms (부드러운 등속도)"));
+  Serial.println(F("👉 [입력 옵션 1] 원하는 절대 각도 직접 입력 (0 ~ 180도)"));
+  Serial.println(F("   예시: 150   -> 기준 홈 각도 150도로 즉시 회전"));
+  Serial.println(F("   예시: 130   -> 최저 각도 130도로 즉시 회전"));
+  Serial.println(F("   예시: 170   -> 최고 각도 170도로 즉시 회전"));
+  Serial.println(F("👉 [입력 옵션 2] 등속도 왕복 스윙: '스윙각도 속도'"));
+  Serial.println(F("   예시: 20 10 -> 150도 기준 ±20도 왕복 2회 (1도당 10ms)"));
   Serial.println(F("--------------------------------------------------\n"));
 }
 
@@ -91,8 +93,8 @@ void setup() {
   delay(300);
 
   Serial.println(F("\n=================================================="));
-  Serial.println(F("  Arduino UNO 9번 핀 [100% 균일 등속도 서보 제어기]"));
-  Serial.println(F("  구간별 속도 변화 / 중간 끊김 완전히 제거"));
+  Serial.println(F("  Arduino UNO 9번 핀 [서보모터 통합 각도 제어기]"));
+  Serial.println(F("  절대 각도 직접 입력 & 등속도 왕복 스윙 지원"));
   Serial.println(F("=================================================="));
 
   myServo.attach(SERVO_PIN, 500, 2500);
@@ -107,31 +109,48 @@ void loop() {
   if (Serial.available() > 0) {
     String input = Serial.readStringUntil('\n');
     input.trim();
+    input.toLowerCase();
     input.replace(',', ' ');
 
     if (input.length() > 0) {
-      int swingAngle = 20;
-      int msPerDegree = 10;
+      if (input == "home" || input == "h") {
+        myServo.write(BASE_ANGLE);
+        Serial.println(F("🎯 [홈 포지션 복귀] 서보모터를 150도 중립 위치로 이동했습니다."));
+        printPrompt();
+        return;
+      }
 
       int spaceIdx = input.indexOf(' ');
       if (spaceIdx != -1) {
+        // [옵션 2: 2개 숫자 입력 -> 왕복 스윙 모드]
         String first = input.substring(0, spaceIdx);
         String second = input.substring(spaceIdx + 1);
         first.trim();
         second.trim();
 
-        swingAngle = first.toInt();
-        msPerDegree = second.toInt();
+        int swingAngle = first.toInt();
+        int msPerDegree = second.toInt();
+        if (swingAngle > 0) {
+          runTwoRoundTrips(swingAngle, msPerDegree);
+        }
       } else {
-        swingAngle = input.toInt();
-        msPerDegree = 10;
-      }
-
-      if (swingAngle > 0) {
-        runTwoRoundTrips(swingAngle, msPerDegree);
-      } else {
-        Serial.println(F("⚠️ 각도는 1 이상의 양수를 입력해주세요!"));
-        printPrompt();
+        // [옵션 1: 1개 숫자 입력 -> 절대 각도 직접 이동 또는 스윙]
+        int val = input.toInt();
+        if (val >= 45 && val <= 180) {
+          // 절대 각도 직접 회전 (45도 ~ 180도)
+          int targetAngle = constrain(val, 0, 180);
+          myServo.write(targetAngle);
+          Serial.print(F("🎯 [절대 각도 이동] 서보모터가 "));
+          Serial.print(targetAngle);
+          Serial.println(F("° 위치로 즉시 회전했습니다."));
+          printPrompt();
+        } else if (val > 0 && val < 45) {
+          // ±val도 스윙
+          runTwoRoundTrips(val, 10);
+        } else {
+          Serial.println(F("⚠️ 유효한 각도(0~180) 또는 '스윙각도 속도'를 입력해주세요!"));
+          printPrompt();
+        }
       }
     }
   }
