@@ -33,7 +33,7 @@ typedef struct struct_message {
 struct_message rxData;
 
 volatile bool isPaused = false;
-volatile bool isManualAngleMode = false;
+volatile bool isManualAngleMode = true; // 기본 150도 정지 대기
 volatile float manualAngle = 150.0;
 volatile float targetScore = 31.5;
 volatile float masterPhase = 0.0;
@@ -111,14 +111,8 @@ void setup() {
 
   singleServo.setPeriodHertz(50);
   singleServo.attach(SERVO_PIN, 500, 2500);
-
-  // 부팅 진단 스윙
-  singleServo.write(165);
-  delay(250);
-  singleServo.write(135);
-  delay(250);
-  singleServo.write(BASE_ANGLE);
-  delay(250);
+  singleServo.write(BASE_ANGLE); // 150도 중립 정지 대기
+  delay(100);
 
   // 마스터와 동일한 Wi-Fi 채널 동기화를 위해 Wi-Fi 연결
   WiFi.mode(WIFI_STA);

@@ -44,9 +44,9 @@ typedef struct struct_message {
 
 struct_message txData;
 
-// 마스터 상태 변수
+// 마스터 상태 변수 (기본값: 150도 중립 정지 대기)
 volatile bool isPaused = false;
-volatile bool isManualAngleMode = false;
+volatile bool isManualAngleMode = true;
 volatile float manualAngle = 150.0;
 volatile float sharedScore = 31.5;
 volatile bool isWifiConnected = false;
@@ -485,14 +485,8 @@ void setup() {
 
   singleServo.setPeriodHertz(50);
   singleServo.attach(SERVO_PIN, 500, 2500);
-
-  // 부팅 진단 스윙
-  singleServo.write(165);
-  delay(250);
-  singleServo.write(135);
-  delay(250);
-  singleServo.write(BASE_ANGLE);
-  delay(250);
+  singleServo.write(BASE_ANGLE); // 150도 중립 정지 대기
+  delay(100);
 
   xTaskCreatePinnedToCore(
     dataFetchTask,
