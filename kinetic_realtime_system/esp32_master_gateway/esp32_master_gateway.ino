@@ -7,6 +7,8 @@
 #include <ESP32Servo.h>
 #include <WebServer.h>
 #include <ESPmDNS.h>
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
 
 // 브라운아웃(전압 강하 리셋) 방지 헤더
 #include "soc/soc.h"
@@ -15,8 +17,12 @@
 // =========================================================================
 // [1. 핀 배선 및 모터/센서 파라미터]
 // =========================================================================
-const int SERVO_PIN = 18;       // 서보 신호선: GPIO 18
+const int SERVO_PIN = 18;       // 서보 단독 신호선: GPIO 18 (직결용)
 const float BASE_ANGLE = 150.0; // 기본 중립 위치: 150도
+
+// I2C 및 PCA9685 16채널 PWM 드라이버 (SDA: GPIO 21, SCL: GPIO 22)
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);
+bool pca9685Found = false;
 
 // HC-SR04 초음파 거리 센서 핀 배선
 const int TRIG_PIN = 5;         // 초음파 트리거 펄스 출력 (GPIO 5)
@@ -24,6 +30,12 @@ const int ECHO_PIN = 19;        // 반사 에코 수신 입력 (GPIO 19)
 
 Servo singleServo;
 WebServer server(80);
+
+// 각도(0~180도) -> 마이크로초(500us ~ 2500us) 정밀 변환 함수
+inline int angleToMicros(float angle) {
+  angle = constrain(angle, 0.0f, 180.0f);
+  return (int)(500.0f + (angle / 180.0f) * 2000.0f);
+}
 
 // =========================================================================
 // [2. Wi-Fi 정보 & ESP-NOW 통신 패킷 구조체]
@@ -44,9 +56,9 @@ typedef struct struct_message {
 
 struct_message txData;
 
-// 마스터 상태 변수 (기본값: 150도 중립 정지 대기)
+// 마스터 상태 변수 (기본값: 실시간 국제정세 데이터 파도 모드 가동)
 volatile bool isPaused = false;
-volatile bool isManualAngleMode = true;
+volatile bool isManualAngleMode = false;
 volatile float manualAngle = 150.0;
 volatile float sharedScore = 31.5;
 volatile bool isWifiConnected = false;
@@ -483,6 +495,19 @@ void setup() {
   pinMode(ECHO_PIN, INPUT);
   digitalWrite(TRIG_PIN, LOW);
 
+  // I2C 및 PCA9685 16채널 서보 드라이버 초기화 (SDA: GPIO 21, SCL: GPIO 22)
+  Wire.begin(21, 22);
+  if (pwm.begin()) {
+    pca9685Found = true;
+    pwm.setPWMFreq(50);
+    Serial.println("[PCA9685] 🎉 16채널 I2C 서보 드라이버 감지 완료! 3개 서보 50Hz 가동");
+    for (uint8_t ch = 0; ch < 3; ch++) {
+      pwm.writeMicroseconds(ch, angleToMicros(BASE_ANGLE));
+    }
+  } else {
+    Serial.println("[PCA9685] ⚠️ I2C 서보 드라이버 미응답 (0x40 배선 확인 요망) -> GPIO 18 모드로 동작");
+  }
+
   singleServo.setPeriodHertz(50);
   singleServo.attach(SERVO_PIN, 500, 2500);
   singleServo.write(BASE_ANGLE); // 150도 중립 정지 대기
@@ -527,8 +552,8 @@ void loop() {
   // 2. 1.2초마다 초음파 실측치 시리얼 디버그 출력
   if (currentMillis - lastDebugPrint >= 1200) {
     lastDebugPrint = currentMillis;
-    Serial.printf("[📡 초음파] 거리: %.2fm | 감쇄 K: %.2f | 진폭: ±%.1f°\n",
-      filteredDistanceMeters, currentDampFactor, currentAmplitude);
+    Serial.printf("[📡 초음파] 거리: %.2fm | 감쇄 K: %.2f | 진폭: ±%.1f° | PCA9685: %s\n",
+      filteredDistanceMeters, currentDampFactor, currentAmplitude, pca9685Found ? "OK(3개 모터)" : "미감지");
   }
 
   // 3. 0.05초(50ms)마다 슬레이브들에게 위상 및 감쇄 계수 동기화 패킷 전송
@@ -539,14 +564,25 @@ void loop() {
     }
   }
 
-  // 4. 초당 50회(20ms) 연속 서보 구동 & 50Hz 프레임 단위 연속 LERP (계단 현상 완전 제거)
+  // 4. 초당 50회(20ms) 연속 서보 구동 & 50Hz 프레임 단위 연속 LERP & PCA9685 3채널 위상차 파도
   if (currentMillis - lastMotionUpdate >= 20) {
     lastMotionUpdate = currentMillis;
 
     if (isPaused) {
       singleServo.write(BASE_ANGLE);
+      if (pca9685Found) {
+        for (uint8_t ch = 0; ch < 3; ch++) {
+          pwm.writeMicroseconds(ch, angleToMicros(BASE_ANGLE));
+        }
+      }
     } else if (isManualAngleMode) {
-      singleServo.write(constrain((int)manualAngle, 0, 180));
+      int target = constrain((int)manualAngle, 0, 180);
+      singleServo.write(target);
+      if (pca9685Found) {
+        for (uint8_t ch = 0; ch < 3; ch++) {
+          pwm.writeMicroseconds(ch, angleToMicros(target));
+        }
+      }
     } else {
       // 50Hz(초당 50회) 프레임마다 진폭을 목표값으로 부드럽게 연속 보간 -> 1mm 단위의 아날로그 곡선!
       float baseAmp = 5.0f + (smoothedScore / 100.0f) * 15.0f;
@@ -556,9 +592,21 @@ void loop() {
       wavePhase += 0.025f * currentSpeed;
       if (wavePhase > 6.28318f * 100.0f) wavePhase = 0.0f;
 
-      float targetAngle = BASE_ANGLE + sin(wavePhase) * currentAmplitude;
-      targetAngle = constrain(targetAngle, 130.0f, 170.0f);
-      singleServo.write(targetAngle);
+      // 3개 모터의 공간적 위상차 (Traveling Wave): 채널 0 (0), 채널 1 (-0.25 rad), 채널 2 (-0.50 rad)
+      float angle0 = BASE_ANGLE + sin(wavePhase) * currentAmplitude;
+      float angle1 = BASE_ANGLE + sin(wavePhase - 0.25f) * currentAmplitude;
+      float angle2 = BASE_ANGLE + sin(wavePhase - 0.50f) * currentAmplitude;
+
+      angle0 = constrain(angle0, 130.0f, 170.0f);
+      angle1 = constrain(angle1, 130.0f, 170.0f);
+      angle2 = constrain(angle2, 130.0f, 170.0f);
+
+      singleServo.write(angle0);
+      if (pca9685Found) {
+        pwm.writeMicroseconds(0, angleToMicros(angle0));
+        pwm.writeMicroseconds(1, angleToMicros(angle1));
+        pwm.writeMicroseconds(2, angleToMicros(angle2));
+      }
     }
   }
 
@@ -577,7 +625,12 @@ void loop() {
         isManualAngleMode = true;
         manualAngle = BASE_ANGLE;
         singleServo.write(BASE_ANGLE);
-        Serial.println(F("\n🎯 [홈 포지션 복귀] 마스터 & 슬레이브 서보모터를 150도 중립으로 회전했습니다."));
+        if (pca9685Found) {
+          for (uint8_t ch = 0; ch < 3; ch++) {
+            pwm.writeMicroseconds(ch, angleToMicros(BASE_ANGLE));
+          }
+        }
+        Serial.println(F("\n🎯 [홈 포지션 복귀] 마스터 & 서보모터들을 150도 중립으로 회전했습니다."));
         sendEspNowPacket(10);
       } else {
         float angle = input.toFloat();
@@ -585,7 +638,12 @@ void loop() {
           isManualAngleMode = true;
           manualAngle = angle;
           singleServo.write(constrain((int)angle, 0, 180));
-          Serial.printf("\n🎯 [절대 각도 수동 제어] 마스터 & 슬레이브가 %.1f° 위치로 동시 회전했습니다! (복귀는 'auto' 입력)\n", angle);
+          if (pca9685Found) {
+            for (uint8_t ch = 0; ch < 3; ch++) {
+              pwm.writeMicroseconds(ch, angleToMicros(angle));
+            }
+          }
+          Serial.printf("\n🎯 [절대 각도 수동 제어] 모터들이 %.1f° 위치로 동시 회전했습니다! (복귀는 'auto' 입력)\n", angle);
           sendEspNowPacket(10);
         } else {
           Serial.println(F("\n⚠️ 유효한 각도(0~180) 또는 'auto', 'home'을 입력해주세요!"));
