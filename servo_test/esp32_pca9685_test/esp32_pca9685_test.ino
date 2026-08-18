@@ -11,19 +11,21 @@
 // =========================================================================
 #define SDA_PIN 21
 #define SCL_PIN 22
-#define PCA9685_ADDR 0x40
+#define DEFAULT_PCA9685_ADDR 0x40
 
-// 8개 채널(0번 ~ 7번) 전체 동시 지원 (채널 번호 착오 방지)
+// 8개 채널(0번 ~ 7번) 전체 동시 지원
 #define NUM_CHANNELS 8
 
 // MG996R 서보 표준 12비트 PWM 펄스 범위 (50Hz 기준, 20ms = 4096 ticks)
-// 500us (0도)  = (500 / 20000) * 4096 = 102.4 -> 102
-// 2500us (180도) = (2500 / 20000) * 4096 = 512.0 -> 512
-#define SERVOMIN 102 // 0도
-#define SERVOMAX 512 // 180도
+// 500us (0도)  = 102 ticks
+// 1500us (90도) = 307 ticks
+// 2500us (180도) = 512 ticks
+#define SERVOMIN 102
+#define SERVOMAX 512
 
-Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(PCA9685_ADDR);
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(DEFAULT_PCA9685_ADDR);
 bool pca9685Found = false;
+uint8_t detectedAddr = DEFAULT_PCA9685_ADDR;
 
 const float BASE_ANGLE = 150.0; // 기준 중립 위치: 150도
 float currentAngles[NUM_CHANNELS];
@@ -41,7 +43,7 @@ float waveSpeed = 2.5;
 float waveAmplitude = 15.0; // ±15도 스윙 (135° ~ 165°)
 unsigned long lastMotionUpdate = 0;
 
-// 각도(0~180도) -> PCA9685 12비트 정밀 펄스(102~512) 변환 (직접 연산으로 라이브러리 오차 완전 제거)
+// 각도(0~180도) -> PCA9685 12비트 정밀 펄스(102~512) 변환
 inline int angleToPulse(float angle) {
   angle = constrain(angle, 0.0f, 180.0f);
   return (int)(SERVOMIN + (angle / 180.0f) * (SERVOMAX - SERVOMIN));
@@ -65,9 +67,52 @@ void setAllServos(float angle) {
   }
 }
 
+// I2C 버스 스캐너 및 PCA9685 초기화 함수
+bool scanAndInitI2C() {
+  Serial.println(F("\n🔍 [I2C 버스 스캔 시작 (SDA: 21, SCL: 22, 100kHz)]..."));
+  uint8_t foundCount = 0;
+  detectedAddr = DEFAULT_PCA9685_ADDR;
+
+  for (uint8_t addr = 1; addr < 127; addr++) {
+    Wire.beginTransmission(addr);
+    uint8_t error = Wire.endTransmission();
+    if (error == 0) {
+      Serial.printf("  📍 [I2C 장치 발견] 주소: 0x%02X (%d)\n", addr, addr);
+      foundCount++;
+      if (addr >= 0x40 && addr <= 0x7F && addr != 0x70) {
+        detectedAddr = addr;
+      }
+    }
+  }
+
+  if (foundCount == 0) {
+    Serial.println(F("❌ [I2C 장치 미발견] PCA9685가 감지되지 않았습니다."));
+    Serial.println(F("   👉 확인 1: PCA9685 VCC 핀 -> ESP32 3.3V (또는 5V)"));
+    Serial.println(F("   👉 확인 2: PCA9685 GND 핀 -> ESP32 GND"));
+    Serial.println(F("   👉 확인 3: PCA9685 SDA 핀 -> ESP32 GPIO 21"));
+    Serial.println(F("   👉 확인 4: PCA9685 SCL 핀 -> ESP32 GPIO 22"));
+    pca9685Found = false;
+    return false;
+  }
+
+  pwm = Adafruit_PWMServoDriver(detectedAddr);
+  if (pwm.begin()) {
+    pca9685Found = true;
+    pwm.setPWMFreq(50); // 50Hz 서보 표준 주파수
+    delay(10);
+    Serial.printf("🎉 [PCA9685 초기화 성공] 주소 0x%02X에서 50Hz PWM 작동 시작!\n", detectedAddr);
+    setAllServos(BASE_ANGLE);
+    return true;
+  } else {
+    Serial.println(F("❌ [PCA9685 응답 실패] 드라이버 begin 실패"));
+    pca9685Found = false;
+    return false;
+  }
+}
+
 void printMenu() {
   Serial.println(F("\n=================================================="));
-  Serial.println(F("  🎮 [ESP32 + PCA9685 12비트 다채널 서보 테스트기]"));
+  Serial.println(F("  🎮 [ESP32 + PCA9685 다채널 서보 테스트기]"));
   Serial.println(F("=================================================="));
   Serial.println(F("👉 [전체 각도 제어] 숫자만 입력 후 Enter (채널 0~7 동시 제어)"));
   Serial.println(F("   예: 150    -> 모든 모터 150도(중립 홈)로 즉시 회전"));
@@ -78,7 +123,8 @@ void printMenu() {
   Serial.println(F("   예: 1 150  -> 1번 채널만 150도로 회전"));
   Serial.println(F("   예: 2 170  -> 2번 채널만 170도로 회전"));
   Serial.println(F("👉 [진단 및 동적 모드]"));
-  Serial.println(F("   예: test   -> 0번, 1번, 2번 모터를 하나씩 순서대로 징~ 움직여 채널 자가진단"));
+  Serial.println(F("   예: scan   -> I2C 버스 재스캔 및 연결 복구"));
+  Serial.println(F("   예: test   -> 0번, 1번, 2번 모터를 하나씩 순서대로 징~ 움직여 채널 진단"));
   Serial.println(F("   예: wave   -> 3개 모터가 시차를 두고 출렁이는 연속 파도타기"));
   Serial.println(F("   예: sweep  -> 130도 ~ 170도 사이를 부드럽게 2회 왕복 스위프"));
   Serial.println(F("   예: home   -> 150도 중립 정렬 및 정지"));
@@ -87,6 +133,11 @@ void printMenu() {
 
 // 채널별 1개씩 순차 자가진단 함수 (0번 -> 1번 -> 2번 개별 테스트)
 void runChannelDiagnostic() {
+  if (!pca9685Found) {
+    Serial.println(F("⚠️ PCA9685가 연결되지 않았습니다. 'scan'을 먼저 실행합니다..."));
+    if (!scanAndInitI2C()) return;
+  }
+
   Serial.println(F("\n🔍 [자가진단 시작] 0번, 1번, 2번 채널을 순서대로 1개씩 테스트합니다..."));
   for (uint8_t ch = 0; ch < 3; ch++) {
     Serial.printf(">>> [채널 %d번 테스트] 130° -> 170° -> 150° 스윙 중...\n", ch);
@@ -102,6 +153,11 @@ void runChannelDiagnostic() {
 
 // 등속도 왕복 2회 스위프 함수
 void runSweepTest(float minAng, float maxAng, int msDelay) {
+  if (!pca9685Found) {
+    scanAndInitI2C();
+    if (!pca9685Found) return;
+  }
+
   Serial.println(F("🚀 [스위프 시작] 130° ~ 170° 왕복 2회 진행 중..."));
   for (int round = 1; round <= 2; round++) {
     for (float a = BASE_ANGLE; a <= maxAng; a += 1.0) {
@@ -124,37 +180,24 @@ void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 
   Serial.begin(115200);
-  Serial.setTimeout(50); // 50ms 초고속 시리얼 타임아웃 (줄바꿈 설정 없어도 즉각 반응)
+  Serial.setTimeout(50);
   delay(300);
 
-  Serial.println(F("\n[초기화] ESP32 I2C 버스 시작 (SDA: GPIO 21, SCL: GPIO 22)..."));
   Wire.begin(SDA_PIN, SCL_PIN);
-  Wire.setClock(400000); // 400kHz I2C 고속 모드
+  Wire.setClock(100000); // 100kHz 표준 안정 I2C 속도
 
   for (uint8_t i = 0; i < NUM_CHANNELS; i++) {
     currentAngles[i] = BASE_ANGLE;
   }
 
-  if (pwm.begin()) {
-    pca9685Found = true;
-    pwm.setOscillatorFrequency(27000000); // 정밀 내부 클럭 27MHz 보정
-    pwm.setPWMFreq(50); // 50Hz 서보 표준 주파수
-    delay(10);
-
-    Serial.println(F("🎉 [PCA9685 감지 성공] 16채널 I2C 드라이버 초기화 완료!"));
-    // 채널 0 ~ 7 전체를 150도 중립으로 초기화
-    setAllServos(BASE_ANGLE);
-  } else {
-    Serial.println(F("❌ [PCA9685 감지 실패] I2C 배선(SDA 21 / SCL 22) 및 3.3V/GND 전원을 확인해주세요."));
-  }
-
+  scanAndInitI2C();
   printMenu();
 }
 
 void loop() {
   unsigned long currentMillis = millis();
 
-  // 1. 시리얼 터미널 사용자 입력 처리 (줄바꿈 설정 무관 초고속 처리)
+  // 1. 시리얼 터미널 사용자 입력 처리
   if (Serial.available() > 0) {
     String input = Serial.readStringUntil('\n');
     input.trim();
@@ -168,12 +211,16 @@ void loop() {
 
       if (input == "home" || input == "h" || input == "stop") {
         currentMode = MODE_MANUAL;
+        if (!pca9685Found) scanAndInitI2C();
         setAllServos(BASE_ANGLE);
         Serial.println(F("🎯 [홈 포지션] 모든 서보모터 150도 정렬 및 정지 대기 완료"));
+      } else if (input == "scan" || input == "i2c") {
+        scanAndInitI2C();
       } else if (input == "test" || input == "t" || input == "diag") {
         currentMode = MODE_MANUAL;
         runChannelDiagnostic();
       } else if (input == "wave" || input == "w") {
+        if (!pca9685Found) scanAndInitI2C();
         currentMode = MODE_WAVE;
         wavePhase = 0.0;
         Serial.println(F("🌊 [파도 모드 시작] 모터들이 위상차를 두고 유기적으로 출렁입니다! (정지는 'home' 입력)"));
@@ -193,6 +240,7 @@ void loop() {
           float ang = angStr.toFloat();
           if (ch >= 0 && ch < 16 && ang >= 0.0 && ang <= 180.0) {
             currentMode = MODE_MANUAL;
+            if (!pca9685Found) scanAndInitI2C();
             setServoAngle(ch, ang);
             Serial.printf("🎯 [개별 제어] 채널 %d 서보모터 -> %.1f° 이동 완료 (12비트 펄스: %d)\n", ch, ang, angleToPulse(ang));
           } else {
@@ -203,10 +251,11 @@ void loop() {
           float val = input.toFloat();
           if (val >= 0.0 && val <= 180.0) {
             currentMode = MODE_MANUAL;
+            if (!pca9685Found) scanAndInitI2C();
             setAllServos(val);
             Serial.printf("🎯 [전체 제어] 채널 0~7 전체 모터 -> %.1f° 이동 완료 (12비트 펄스: %d)\n", val, angleToPulse(val));
           } else {
-            Serial.println(F("⚠️ 유효한 각도(0~180) 또는 명령어(test, wave, sweep, home)를 입력해주세요!"));
+            Serial.println(F("⚠️ 유효한 각도(0~180) 또는 명령어(scan, test, wave, sweep, home)를 입력해주세요!"));
           }
         }
       }
@@ -214,7 +263,7 @@ void loop() {
   }
 
   // 2. 파도타기(Wave) 모드 시 50Hz (20ms) 주기 공간 위상차 구동
-  if (currentMode == MODE_WAVE) {
+  if (currentMode == MODE_WAVE && pca9685Found) {
     if (currentMillis - lastMotionUpdate >= 20) {
       lastMotionUpdate = currentMillis;
 
