@@ -72,8 +72,8 @@ def main():
         print(f"발견된 USB 포트: {', '.join(detected)}")
 
     for p in detected:
-        # ESP32는 115200, Uno는 9600
-        baud = 115200 if p == "COM15" or p == "COM12" else (9600 if p == "COM8" else 115200)
+        # ESP32 및 Arduino Uno 모두 115200 baud 사용
+        baud = 115200
         try:
             ser = serial.Serial(p, baud, timeout=0.1)
             active_ports[p] = ser
@@ -94,7 +94,9 @@ def main():
     print("  • 'test'  -> 0번, 1번, 2번 모터를 하나씩 순서대로 징~ 움직여 채널 진단")
     print("  • 'wave'  -> 3개 모터가 시차를 두고 출렁이는 부드러운 파도타기")
     print("  • 'sweep' -> 130도 ~ 170도 사이를 2회 왕복 스위프")
+    print("  • 'full'  -> 150도 기준 ±30도(120도~180도) 3회 왕복 풀스윙")
     print("  • 'home'  -> 150도 중립 홈 포지션 정렬")
+    print("  • 'scan'  -> PCA9685 I2C 통신 상태 스캔")
     print("  • 'q'     -> 콘솔 종료")
     print("-" * 60 + "\n")
 
@@ -117,6 +119,12 @@ def main():
             elif cmd in ["sweep", "s"]:
                 send_all("sweep")
                 print(">> 130도 ~ 170도 왕복 스위프 실행 중...")
+            elif cmd in ["full", "f"]:
+                send_all("full")
+                print(">> ±30도(120도~180도) 3회 왕복 풀스윙 실행 중...")
+            elif cmd == "scan":
+                send_all("scan")
+                print(">> I2C 버스 스캔 명령 전송...")
             else:
                 send_all(cmd)
                 print(f">> 명령 전송 완료: {cmd}")

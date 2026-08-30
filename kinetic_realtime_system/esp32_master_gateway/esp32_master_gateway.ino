@@ -17,16 +17,21 @@
 // =========================================================================
 // [1. 핀 배선 및 모터/센서 파라미터]
 // =========================================================================
-const int SERVO_PIN = 18;       // 서보 단독 신호선: GPIO 18 (직결용)
+const int SERVO_PIN = 4;        // 서보 신호선: GPIO 4
 const float BASE_ANGLE = 150.0; // 기본 중립 위치: 150도
 
-// I2C 및 PCA9685 16채널 PWM 드라이버 (SDA: GPIO 21, SCL: GPIO 22)
-Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);
-bool pca9685Found = false;
+// HC-SR04 초음파 거리 센서 3채널 핀 배선 (플래시/스트랩 핀과 완전히 격리된 중앙 안전 핀)
+// [센서 1 중앙]: Trig ➡️ D32 (GPIO 32), Echo ➡️ D33 (GPIO 33)
+// [센서 2 좌측]: Trig ➡️ D25 (GPIO 25), Echo ➡️ D26 (GPIO 26)
+// [센서 3 우측]: Trig ➡️ D27 (GPIO 27), Echo ➡️ D14 (GPIO 14)
+const int TRIG_PIN_1 = 32;        // 센서 1 (중앙): Trig (GPIO 32)
+const int ECHO_PIN_1 = 33;        // 센서 1 (중앙): Echo (GPIO 33)
 
-// HC-SR04 초음파 거리 센서 핀 배선
-const int TRIG_PIN = 5;         // 초음파 트리거 펄스 출력 (GPIO 5)
-const int ECHO_PIN = 19;        // 반사 에코 수신 입력 (GPIO 19)
+const int TRIG_PIN_2 = 25;        // 센서 2 (좌측): Trig (GPIO 25)
+const int ECHO_PIN_2 = 26;        // 센서 2 (좌측): Echo (GPIO 26)
+
+const int TRIG_PIN_3 = 27;        // 센서 3 (우측): Trig (GPIO 27)
+const int ECHO_PIN_3 = 14;        // 센서 3 (우측): Echo (GPIO 14)
 
 Servo singleServo;
 WebServer server(80);
@@ -40,21 +45,43 @@ inline int angleToMicros(float angle) {
 // =========================================================================
 // [2. Wi-Fi 정보 & ESP-NOW 통신 패킷 구조체]
 // =========================================================================
-const char* ssid = "MIRR";
-const char* password = "mirr3411";
+const char* ssid = "Artech";
+const char* password = "123456789";
 
-uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+// 슬레이브 보드 고유 MAC 주소 목록 (총 4대 슬레이브 + 브로드캐스트)
+uint8_t slaveAddressList[][6] = {
+  {0x8C, 0x94, 0xDF, 0x6D, 0x8B, 0xC4}, // Slave #1
+  {0x8C, 0x94, 0xDF, 0x6D, 0xF5, 0x34}, // Slave #2
+  {0x8C, 0x94, 0xDF, 0xB9, 0xAD, 0x30}, // Slave #3
+  {0xB8, 0xD6, 0x1A, 0x65, 0xEA, 0x60}, // Slave #4
+  {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}  // 전체 브로드캐스트
+};
+const int NUM_SLAVES = sizeof(slaveAddressList) / sizeof(slaveAddressList[0]);
 
-typedef struct struct_message {
+typedef struct __attribute__((packed)) struct_message {
   float score;        // 실시간 국제정세 긴장도 (0 ~ 100)
   float wavePhase;    // 파도 위상 (0.0 ~ 6.28)
   float dampFactor;   // 초음파 거리 감쇄 계수 K (0.15 ~ 1.00)
   float viewerDist;   // 관람객 실측 거리 (m)
   bool isPaused;      // 긴급 정지 여부
-  uint8_t cmd;        // 0: 일반, 1: 자가진단 스윙, 2: 재부팅
+  uint8_t cmd;        // 0: 일반, 1: 자가진단 스윙, 2: 재부팅, 10: 수동 각도
 } struct_message;
 
 struct_message txData;
+
+// 시나리오별 각도(진폭) 및 각속도 설정 구조체 및 변수
+struct ScenarioConfig {
+  float amp;   // 스윙 진폭 (±각도)
+  float speed; // 각속도 계수 (rad/s 단위에 비례)
+};
+
+ScenarioConfig cfgUkraine = {19.8f, 4.9f}; // 시나리오 1 [우크라이나] 기본값
+ScenarioConfig cfgIran    = {16.3f, 4.1f}; // 시나리오 2 [이란] 기본값
+ScenarioConfig cfgPeace   = {7.3f, 2.0f};  // 평화 상태 기본값
+
+String activeMode = "live"; // "live", "ukraine", "iran", "peace", "custom"
+float customAmp = 15.0f;
+float customSpeed = 2.5f;
 
 // 마스터 상태 변수 (기본값: 실시간 국제정세 데이터 파도 모드 가동)
 volatile bool isPaused = false;
@@ -221,7 +248,7 @@ const char DASHBOARD_HTML[] PROGMEM = R"rawliteral(
       }
       document.getElementById('txt-score').innerText = data.score.toFixed(1) + " 점";
       document.getElementById('txt-dist').innerText = (data.dist !== undefined ? data.dist.toFixed(2) : "3.00") + " m";
-      document.getElementById('txt-damp').innerText = "K = " + (data.damp !== undefined ? data.damp.toFixed(2) : "1.00") + ((data.damp < 0.85) ? " (관심 진정)" : " (날것 데이터)");
+      document.getElementById('txt-damp').innerText = "K = " + (data.damp !== undefined ? data.damp.toFixed(2) : "1.00") + ((data.damp > 0.85) ? " (관람객 원거리)" : " (관람객 근접)");
       document.getElementById('txt-amp').innerText = "±" + data.amp.toFixed(1) + "° (" + (150 - data.amp).toFixed(1) + "° ~ " + (150 + data.amp).toFixed(1) + "°)";
       document.getElementById('txt-post').innerText = `[${data.time}] "${data.post}"`;
     }
@@ -232,50 +259,84 @@ const char DASHBOARD_HTML[] PROGMEM = R"rawliteral(
         const data = await res.json();
         updateUI(data);
       } catch(e) {}
-    }, 1500);
+    }, 200);
   </script>
 </body>
 </html>
 )rawliteral";
 
-// =========================================================================
-// [4. 초음파 센서 계측 및 ESP-NOW 무선 발사 함수]
-// =========================================================================
-float readUltrasonicDistance() {
-  digitalWrite(TRIG_PIN, LOW);
-  delayMicroseconds(4);
-  digitalWrite(TRIG_PIN, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(TRIG_PIN, LOW);
+float rawDist1 = 3.0f;
+float rawDist2 = 3.0f;
+float rawDist3 = 3.0f;
 
-  // HC-SR04 에코 수신 (최대 30ms = 약 5.1m 타임아웃)
-  unsigned long duration = pulseIn(ECHO_PIN, HIGH, 30000);
-  if (duration == 0 || duration >= 24000) {
-    return 3.0f; // 반사파 미수신(원거리 또는 장애물 없음) 시 즉각 3.0m 반환
+float readSingleSensor(int trigPin, int echoPin) {
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(4);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  // HC-SR04 에코 수신 (최대 10ms = 약 1.7m 타임아웃으로 워치독 기아 방지)
+  unsigned long duration = pulseIn(echoPin, HIGH, 10000);
+  if (duration == 0 || duration >= 9500) {
+    return 3.0f; // 타임아웃 또는 미감지 시 3.0m 반환
   }
   float distMeters = (duration * 0.0343f) / 2.0f / 100.0f;
-  if (distMeters < 0.05f || distMeters > 3.5f) {
+  if (distMeters < 0.05f || distMeters > 3.2f) {
     return 3.0f;
   }
   return distMeters;
 }
 
+float readUltrasonicDistance() {
+  // 1. 센서 3개 순차 계측 (1ms 시차로 음파 간섭 완벽 방지)
+  rawDist1 = readSingleSensor(TRIG_PIN_1, ECHO_PIN_1);
+  delayMicroseconds(1000);
+  rawDist2 = readSingleSensor(TRIG_PIN_2, ECHO_PIN_2);
+  delayMicroseconds(1000);
+  rawDist3 = readSingleSensor(TRIG_PIN_3, ECHO_PIN_3);
+
+  // 2. 3개 센서의 평균값 반환 (이상치 3.0m 타임아웃 값은 제외)
+  float sum = 0.0f;
+  int validCount = 0;
+  if (rawDist1 < 2.90f) { sum += rawDist1; validCount++; }
+  if (rawDist2 < 2.90f) { sum += rawDist2; validCount++; }
+  if (rawDist3 < 2.90f) { sum += rawDist3; validCount++; }
+
+  if (validCount > 0) {
+    return sum / (float)validCount;
+  }
+  return 3.0f; // 모두 타임아웃 시 3.0m 반환
+}
+
 float calculateDampingFactor(float dist) {
-  // 0.2m(초근접) ~ 2.0m(원거리) 전 구간에 걸쳐 1mm 단위 완전 선형 연속 매핑
+  // 2.0m 이상(원거리/아무도 없음): K = 1.00 (날것의 소셜 진폭 100%)
+  // 0.2m 이하(초근접/관람객 다가옴): K = 0.12 (관람객 관심으로 12% 진정 감쇄)
   if (dist >= 2.0f) return 1.0f;
   if (dist <= 0.2f) return 0.12f;
   return 0.12f + ((dist - 0.2f) / 1.8f) * 0.88f;
 }
 
 void sendEspNowPacket(uint8_t cmdCode = 0) {
-  txData.score = isManualAngleMode ? manualAngle : smoothedScore;
+  float effectiveAmpToSend = 9.5f;
+  if (activeMode == "ukraine") effectiveAmpToSend = cfgUkraine.amp;
+  else if (activeMode == "iran") effectiveAmpToSend = cfgIran.amp;
+  else if (activeMode == "peace") effectiveAmpToSend = cfgPeace.amp;
+  else if (activeMode == "custom") effectiveAmpToSend = customAmp;
+  else effectiveAmpToSend = 5.0f + (smoothedScore / 100.0f) * 15.0f;
+
+  float scoreToSend = constrain((effectiveAmpToSend - 5.0f) / 15.0f * 100.0f, 0.0f, 100.0f);
+
+  txData.score = isManualAngleMode ? manualAngle : scoreToSend;
   txData.wavePhase = wavePhase;
   txData.dampFactor = currentDampFactor;
   txData.viewerDist = filteredDistanceMeters;
   txData.isPaused = isPaused;
   txData.cmd = isManualAngleMode ? 10 : cmdCode;
 
-  esp_now_send(broadcastAddress, (uint8_t *) &txData, sizeof(txData));
+  for (int i = 0; i < NUM_SLAVES; i++) {
+    esp_now_send(slaveAddressList[i], (uint8_t *) &txData, sizeof(txData));
+  }
 }
 
 void setCORS() {
@@ -286,14 +347,31 @@ void setCORS() {
 
 void handleStatus() {
   setCORS();
-  DynamicJsonDocument doc(512);
+  DynamicJsonDocument doc(768);
   doc["role"] = "Master Gateway (C to C)";
   doc["paused"] = isPaused;
+  doc["mode"] = activeMode;
   doc["score"] = smoothedScore;
   doc["dist"] = filteredDistanceMeters;
   doc["damp"] = currentDampFactor;
+  doc["d1"] = rawDist1;
+  doc["d2"] = rawDist2;
+  doc["d3"] = rawDist3;
   doc["amp"] = currentAmplitude;
+  doc["speed"] = currentSpeed;
   doc["phase"] = wavePhase;
+
+  doc["ukraine_amp"] = cfgUkraine.amp;
+  doc["ukraine_spd"] = cfgUkraine.speed;
+  doc["iran_amp"] = cfgIran.amp;
+  doc["iran_spd"] = cfgIran.speed;
+  doc["peace_amp"] = cfgPeace.amp;
+  doc["peace_spd"] = cfgPeace.speed;
+  doc["custom_amp"] = customAmp;
+  doc["custom_spd"] = customSpeed;
+
+  doc["is_manual"] = isManualAngleMode;
+  doc["manual_angle"] = manualAngle;
   doc["post"] = lastPostSnippet;
   doc["time"] = lastPostTime;
   doc["ip"] = localIPStr;
@@ -340,6 +418,59 @@ void handleSweep() {
   handleStatus();
 }
 
+// 🎛️ 시나리오별 각도(진폭) 및 각속도 튜닝 API
+void handleSetConfig() {
+  setCORS();
+  if (server.hasArg("mode")) {
+    String m = server.arg("mode");
+    m.toLowerCase();
+    
+    float amp = server.hasArg("amp") ? server.arg("amp").toFloat() : -1.0f;
+    float spd = server.hasArg("speed") ? server.arg("speed").toFloat() : -1.0f;
+    bool apply = server.hasArg("apply") ? (server.arg("apply") == "true" || server.arg("apply") == "1") : true;
+
+    if (m == "ukraine") {
+      if (amp > 0) cfgUkraine.amp = constrain(amp, 1.0f, 35.0f);
+      if (spd > 0) cfgUkraine.speed = constrain(spd, 0.5f, 10.0f);
+      if (apply) activeMode = "ukraine";
+      Serial.printf("\n[🔴 시나리오 1: 우크라이나] 진폭: ±%.1f°, 각속도: %.1f rad/s 설정 완료!\n", cfgUkraine.amp, cfgUkraine.speed);
+    } else if (m == "iran") {
+      if (amp > 0) cfgIran.amp = constrain(amp, 1.0f, 35.0f);
+      if (spd > 0) cfgIran.speed = constrain(spd, 0.5f, 10.0f);
+      if (apply) activeMode = "iran";
+      Serial.printf("\n[🟠 시나리오 2: 이란] 진폭: ±%.1f°, 각속도: %.1f rad/s 설정 완료!\n", cfgIran.amp, cfgIran.speed);
+    } else if (m == "peace") {
+      if (amp > 0) cfgPeace.amp = constrain(amp, 1.0f, 35.0f);
+      if (spd > 0) cfgPeace.speed = constrain(spd, 0.5f, 10.0f);
+      if (apply) activeMode = "peace";
+      Serial.printf("\n[🔵 평화 상태: Peace] 진폭: ±%.1f°, 각속도: %.1f rad/s 설정 완료!\n", cfgPeace.amp, cfgPeace.speed);
+    } else if (m == "custom") {
+      if (amp > 0) customAmp = constrain(amp, 1.0f, 35.0f);
+      if (spd > 0) customSpeed = constrain(spd, 0.5f, 10.0f);
+      if (apply) activeMode = "custom";
+      Serial.printf("\n[🎚️ 커스텀 슬라이더] 진폭: ±%.1f°, 각속도: %.1f rad/s 설정 완료!\n", customAmp, customSpeed);
+    } else if (m == "live") {
+      activeMode = "live";
+      Serial.println("\n[🟢 실시간 라이브] 오픈 소셜 자동 수집 모드로 복귀!");
+    }
+  }
+  handleStatus();
+}
+
+void handleManualAngle() {
+  setCORS();
+  if (server.hasArg("auto") && (server.arg("auto") == "true" || server.arg("auto") == "1")) {
+    isManualAngleMode = false;
+    Serial.println("\n[🟢 수동 각도 해제] 자동 파도 모드로 복귀!");
+  } else if (server.hasArg("angle")) {
+    manualAngle = constrain(server.arg("angle").toFloat(), 0.0f, 180.0f);
+    isManualAngleMode = true;
+    Serial.printf("\n[🎯 수동 고정 각도] 전체 모터 %.1f도 즉시 고정!\n", manualAngle);
+  }
+  sendEspNowPacket(10);
+  handleStatus();
+}
+
 void handleReboot() {
   setCORS();
   sendEspNowPacket(2);
@@ -355,10 +486,6 @@ void dataFetchTask(void *pvParameters) {
   // 브라운아웃 디텍터 비활성화
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 
-  Serial.printf("[Core 0] Wi-Fi '%s' 연결 시작...\n", ssid);
-  WiFi.mode(WIFI_STA); // STA 단독 모드로 전력 소모 최소화
-  WiFi.begin(ssid, password);
-
   unsigned long lastFetchTime = 0;
 
   while (true) {
@@ -366,49 +493,26 @@ void dataFetchTask(void *pvParameters) {
       if (!isWifiConnected) {
         isWifiConnected = true;
         localIPStr = WiFi.localIP().toString();
+        Serial.printf("\n[Core 0] 🎉 Wi-Fi 연결 완료! IP: %s\n", localIPStr.c_str());
 
-        // 1. ESP-NOW 초기화
-        if (esp_now_init() == ESP_OK) {
-          Serial.println("[ESP-NOW] 🎉 마스터 무선 통신 엔진 초기화 성공!");
-
-          esp_now_peer_info_t peerInfo = {};
-          memcpy(peerInfo.peer_addr, broadcastAddress, 6);
-          peerInfo.channel = 0;
-          peerInfo.encrypt = false;
-          esp_now_add_peer(&peerInfo);
-        }
-
-        // 2. mDNS 및 웹서버 시작
+        // mDNS 시작
         if (MDNS.begin("kinetic-master")) {
           Serial.println("[mDNS] http://kinetic-master.local 등록 완료!");
         }
         MDNS.addService("http", "tcp", 80);
 
-        server.on("/", HTTP_GET, []() {
-          server.send_P(200, "text/html", DASHBOARD_HTML);
-        });
-        server.on("/api/status", HTTP_GET, handleStatus);
-        server.on("/api/pause", HTTP_GET, handlePause);
-        server.on("/api/resume", HTTP_GET, handleResume);
-        server.on("/api/sync_phase", HTTP_GET, handleSyncPhase);
-        server.on("/api/sweep", HTTP_GET, handleSweep);
-        server.on("/api/reboot", HTTP_GET, handleReboot);
-        server.begin();
-
         Serial.println("\n==================================================");
-        Serial.println("  🎉 [마스터 관제 대시보드 서버 준비 완료!]");
+        Serial.println("  🎉 [마스터 관제 대시보드 서버 가동 중!]");
         Serial.printf("  >> 브라우저 접속 주소: http://%s\n", localIPStr.c_str());
         Serial.println("  >> 또는: http://kinetic-master.local");
         Serial.println("==================================================");
       }
 
-      server.handleClient();
-
-      // 3.5초마다 글로벌 7대 분쟁 키워드 순환 수집
-      if (millis() - lastFetchTime >= 3500) {
+      // 15초마다 글로벌 7대 분쟁 키워드 순환 수집 (웹서버 응답 지연 방지)
+      if (millis() - lastFetchTime >= 15000) {
         lastFetchTime = millis();
 
-        if (!isPaused) {
+        if (!isPaused && activeMode == "live") {
           const char* CRISIS_TAGS[] = {"war", "conflict", "ukraine", "iran", "missile", "military", "crisis"};
           const int NUM_TAGS = 7;
           static int tagIdx = 0;
@@ -466,7 +570,7 @@ void dataFetchTask(void *pvParameters) {
       isWifiConnected = false;
     }
 
-    vTaskDelay(10 / portTICK_PERIOD_MS);
+    vTaskDelay(5 / portTICK_PERIOD_MS);
   }
 }
 
@@ -481,8 +585,8 @@ void setup() {
   delay(300);
 
   Serial.println("\n==================================================");
-  Serial.println("  ESP32 [마스터 게이트웨이] C to C 보드");
-  Serial.println("  Wi-Fi 수신 + ESP-NOW 슬레이브 초고속 MAC 무선 전송");
+  Serial.println("  ESP32 [마스터 게이트웨이]");
+  Serial.println("  Wi-Fi 수신 + ESP-NOW 슬레이브 초고속 무선 브로드캐스트");
   Serial.println("==================================================");
 
   ESP32PWM::allocateTimer(0);
@@ -490,28 +594,71 @@ void setup() {
   ESP32PWM::allocateTimer(2);
   ESP32PWM::allocateTimer(3);
 
-  // 초음파 센서 핀 모드 초기화
-  pinMode(TRIG_PIN, OUTPUT);
-  pinMode(ECHO_PIN, INPUT);
-  digitalWrite(TRIG_PIN, LOW);
-
-  // I2C 및 PCA9685 16채널 서보 드라이버 초기화 (SDA: GPIO 21, SCL: GPIO 22)
-  Wire.begin(21, 22);
-  if (pwm.begin()) {
-    pca9685Found = true;
-    pwm.setPWMFreq(50);
-    Serial.println("[PCA9685] 🎉 16채널 I2C 서보 드라이버 감지 완료! 3개 서보 50Hz 가동");
-    for (uint8_t ch = 0; ch < 3; ch++) {
-      pwm.writeMicroseconds(ch, angleToMicros(BASE_ANGLE));
-    }
-  } else {
-    Serial.println("[PCA9685] ⚠️ I2C 서보 드라이버 미응답 (0x40 배선 확인 요망) -> GPIO 18 모드로 동작");
-  }
+  // 초음파 센서 3채널 핀 모드 초기화
+  pinMode(TRIG_PIN_1, OUTPUT); pinMode(ECHO_PIN_1, INPUT); digitalWrite(TRIG_PIN_1, LOW);
+  pinMode(TRIG_PIN_2, OUTPUT); pinMode(ECHO_PIN_2, INPUT); digitalWrite(TRIG_PIN_2, LOW);
+  pinMode(TRIG_PIN_3, OUTPUT); pinMode(ECHO_PIN_3, INPUT); digitalWrite(TRIG_PIN_3, LOW);
 
   singleServo.setPeriodHertz(50);
   singleServo.attach(SERVO_PIN, 500, 2500);
   singleServo.write(BASE_ANGLE); // 150도 중립 정지 대기
   delay(100);
+
+  // Wi-Fi STA 모드 및 2.4GHz AP 접속 (고정 IP: 192.168.0.14)
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  IPAddress local_IP(192, 168, 0, 14);
+  IPAddress gateway(192, 168, 0, 1);
+  IPAddress subnet(255, 255, 255, 0);
+  IPAddress primaryDNS(8, 8, 8, 8);
+  WiFi.config(local_IP, gateway, subnet, primaryDNS);
+  WiFi.begin(ssid, password);
+  Serial.printf("[Wi-Fi] '%s' 2.4GHz 무선 공유기 접속 중", ssid);
+  int wifiRetry = 0;
+  while (WiFi.status() != WL_CONNECTED && wifiRetry < 25) {
+    delay(200);
+    Serial.print(".");
+    wifiRetry++;
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    isWifiConnected = true;
+    localIPStr = WiFi.localIP().toString();
+    Serial.printf("\n[Wi-Fi] 🎉 공유기 접속 성공! 고정 IP: %s (무선 채널: %d)\n", localIPStr.c_str(), WiFi.channel());
+  } else {
+    Serial.println("\n[Wi-Fi] ⚠️ 공유기 핸드셰이크 진행 중 (백그라운드 지속 접속)");
+  }
+
+  if (esp_now_init() == ESP_OK) {
+    Serial.println("[ESP-NOW] 🎉 마스터 무선 통신 엔진 초기화 성공!");
+    for (int i = 0; i < NUM_SLAVES; i++) {
+      esp_now_peer_info_t peerInfo = {};
+      memcpy(peerInfo.peer_addr, slaveAddressList[i], 6);
+      peerInfo.channel = 0;
+      peerInfo.encrypt = false;
+      if (esp_now_add_peer(&peerInfo) == ESP_OK) {
+        Serial.printf("[ESP-NOW] ✅ 슬레이브 Peer 등록 성공: %02X:%02X:%02X:%02X:%02X:%02X\n",
+          slaveAddressList[i][0], slaveAddressList[i][1], slaveAddressList[i][2],
+          slaveAddressList[i][3], slaveAddressList[i][4], slaveAddressList[i][5]);
+      }
+    }
+  }
+
+  // 웹서버 라우트 등록 및 시작 (Core 1 메인 루프 연동)
+  server.on("/", HTTP_GET, []() {
+    server.send_P(200, "text/html", DASHBOARD_HTML);
+  });
+  server.on("/api/status", HTTP_GET, handleStatus);
+  server.on("/api/pause", HTTP_GET, handlePause);
+  server.on("/api/resume", HTTP_GET, handleResume);
+  server.on("/api/sync_phase", HTTP_GET, handleSyncPhase);
+  server.on("/api/sweep", HTTP_GET, handleSweep);
+  server.on("/api/set_config", HTTP_GET, handleSetConfig);
+  server.on("/api/set_score", HTTP_GET, handleSetConfig);
+  server.on("/api/mode", HTTP_GET, handleSetConfig);
+  server.on("/api/manual_angle", HTTP_GET, handleManualAngle);
+  server.on("/api/reboot", HTTP_GET, handleReboot);
+  server.begin();
+  Serial.println("[WebServer] 🚀 웹서버 80포트 리스닝 시작 완료!");
 
   xTaskCreatePinnedToCore(
     dataFetchTask,
@@ -525,15 +672,17 @@ void setup() {
 }
 
 void loop() {
+  server.handleClient();
   unsigned long currentMillis = millis();
 
-  // 0. 0.06초(60ms)마다 초음파 관람객 실시간 거리 측정 & 초고속 선형 추종
-  if (currentMillis - lastUltrasonicPing >= 60) {
+  // 0. 0.05초(50ms)마다 3개 초음파 융합 거리 측정 & Fast-Attack 초고속 반응
+  if (currentMillis - lastUltrasonicPing >= 50) {
     lastUltrasonicPing = currentMillis;
     float measuredDist = readUltrasonicDistance();
 
-    // 멀어질 때와 다가올 때 모두 튀지 않고 즉각 반응하는 지수 보간
-    float alpha = (measuredDist > filteredDistanceMeters) ? 0.45f : 0.35f;
+    // 사람이 가까워질 때(거리 감소): 즉시 K 상승 → 종이 활발히 흔들림 (alpha = 0.70)
+    // 사람이 멀어질 때(거리 증가): 부드럽게 K 하락 → 종이 서서히 가라앉음 (alpha = 0.20)
+    float alpha = (measuredDist < filteredDistanceMeters) ? 0.70f : 0.20f;
     filteredDistanceMeters = (filteredDistanceMeters * (1.0f - alpha)) + (measuredDist * alpha);
     currentDampFactor = calculateDampingFactor(filteredDistanceMeters);
   }
@@ -542,71 +691,70 @@ void loop() {
   if (currentMillis - lastScoreUpdate >= 500) {
     lastScoreUpdate = currentMillis;
 
-    if (!isPaused) {
+    if (!isPaused && activeMode == "live") {
       float currentTarget = sharedScore;
       smoothedScore = smoothedScore * 0.85f + currentTarget * 0.15f;
-      currentSpeed = 1.5f + (smoothedScore / 100.0f) * 3.5f;
     }
   }
 
   // 2. 1.2초마다 초음파 실측치 시리얼 디버그 출력
   if (currentMillis - lastDebugPrint >= 1200) {
     lastDebugPrint = currentMillis;
-    Serial.printf("[📡 초음파] 거리: %.2fm | 감쇄 K: %.2f | 진폭: ±%.1f° | PCA9685: %s\n",
-      filteredDistanceMeters, currentDampFactor, currentAmplitude, pca9685Found ? "OK(3개 모터)" : "미감지");
+    Serial.printf("[📡 마스터] S1:%.2fm | S2:%.2fm | S3:%.2fm -> 융합거리: %.2fm | K: %.2f | 진폭: ±%.1f°\n",
+      rawDist1, rawDist2, rawDist3, filteredDistanceMeters, currentDampFactor, currentAmplitude);
   }
 
-  // 3. 0.05초(50ms)마다 슬레이브들에게 위상 및 감쇄 계수 동기화 패킷 전송
+  // 3. 0.05초(50ms)마다 4대 슬레이브 노드로 위상 및 감쇄 계수 동기화 패킷 전송 (무조건 50Hz 송출)
   if (currentMillis - lastEspNowSend >= 50) {
     lastEspNowSend = currentMillis;
-    if (isWifiConnected) {
-      sendEspNowPacket(0);
-    }
+    sendEspNowPacket(0);
   }
 
-  // 4. 초당 50회(20ms) 연속 서보 구동 & 50Hz 프레임 단위 연속 LERP & PCA9685 3채널 위상차 파도
+  // 4. 초당 50회(20ms) 연속 서보 구동 & 50Hz 프레임 단위 연속 LERP
   if (currentMillis - lastMotionUpdate >= 20) {
     lastMotionUpdate = currentMillis;
 
     if (isPaused) {
       singleServo.write(BASE_ANGLE);
-      if (pca9685Found) {
-        for (uint8_t ch = 0; ch < 3; ch++) {
-          pwm.writeMicroseconds(ch, angleToMicros(BASE_ANGLE));
-        }
-      }
     } else if (isManualAngleMode) {
       int target = constrain((int)manualAngle, 0, 180);
       singleServo.write(target);
-      if (pca9685Found) {
-        for (uint8_t ch = 0; ch < 3; ch++) {
-          pwm.writeMicroseconds(ch, angleToMicros(target));
-        }
-      }
     } else {
-      // 50Hz(초당 50회) 프레임마다 진폭을 목표값으로 부드럽게 연속 보간 -> 1mm 단위의 아날로그 곡선!
-      float baseAmp = 5.0f + (smoothedScore / 100.0f) * 15.0f;
-      float targetAmp = baseAmp * currentDampFactor;
+      float targetBaseAmp = 9.5f;
+      float targetBaseSpd = 2.5f;
+
+      if (activeMode == "ukraine") {
+        targetBaseAmp = cfgUkraine.amp;
+        targetBaseSpd = cfgUkraine.speed;
+      } else if (activeMode == "iran") {
+        targetBaseAmp = cfgIran.amp;
+        targetBaseSpd = cfgIran.speed;
+      } else if (activeMode == "peace") {
+        targetBaseAmp = cfgPeace.amp;
+        targetBaseSpd = cfgPeace.speed;
+      } else if (activeMode == "custom") {
+        targetBaseAmp = customAmp;
+        targetBaseSpd = customSpeed;
+      } else { // "live" 실시간 소셜 데이터
+        targetBaseAmp = 5.0f + (smoothedScore / 100.0f) * 15.0f;
+        targetBaseSpd = 1.5f + (smoothedScore / 100.0f) * 3.5f;
+      }
+
+      // 초음파 거리 감쇄 K 적용
+      float targetAmp = targetBaseAmp * currentDampFactor;
+      float targetSpd = targetBaseSpd * (0.6f + 0.4f * currentDampFactor);
+
       currentAmplitude += (targetAmp - currentAmplitude) * 0.08f;
+      currentSpeed += (targetSpd - currentSpeed) * 0.08f;
 
       wavePhase += 0.025f * currentSpeed;
-      if (wavePhase > 6.28318f * 100.0f) wavePhase = 0.0f;
+      if (wavePhase > 6.2831853f * 100.0f) wavePhase = 0.0f;
 
-      // 3개 모터의 공간적 위상차 (Traveling Wave): 채널 0 (0), 채널 1 (-0.25 rad), 채널 2 (-0.50 rad)
+      // 마스터 로컬 서보 구동
       float angle0 = BASE_ANGLE + sin(wavePhase) * currentAmplitude;
-      float angle1 = BASE_ANGLE + sin(wavePhase - 0.25f) * currentAmplitude;
-      float angle2 = BASE_ANGLE + sin(wavePhase - 0.50f) * currentAmplitude;
+      angle0 = constrain(angle0, 110.0f, 190.0f);
 
-      angle0 = constrain(angle0, 130.0f, 170.0f);
-      angle1 = constrain(angle1, 130.0f, 170.0f);
-      angle2 = constrain(angle2, 130.0f, 170.0f);
-
-      singleServo.write(angle0);
-      if (pca9685Found) {
-        pwm.writeMicroseconds(0, angleToMicros(angle0));
-        pwm.writeMicroseconds(1, angleToMicros(angle1));
-        pwm.writeMicroseconds(2, angleToMicros(angle2));
-      }
+      singleServo.write(constrain((int)angle0, 0, 180));
     }
   }
 
@@ -625,11 +773,6 @@ void loop() {
         isManualAngleMode = true;
         manualAngle = BASE_ANGLE;
         singleServo.write(BASE_ANGLE);
-        if (pca9685Found) {
-          for (uint8_t ch = 0; ch < 3; ch++) {
-            pwm.writeMicroseconds(ch, angleToMicros(BASE_ANGLE));
-          }
-        }
         Serial.println(F("\n🎯 [홈 포지션 복귀] 마스터 & 서보모터들을 150도 중립으로 회전했습니다."));
         sendEspNowPacket(10);
       } else {
@@ -638,11 +781,6 @@ void loop() {
           isManualAngleMode = true;
           manualAngle = angle;
           singleServo.write(constrain((int)angle, 0, 180));
-          if (pca9685Found) {
-            for (uint8_t ch = 0; ch < 3; ch++) {
-              pwm.writeMicroseconds(ch, angleToMicros(angle));
-            }
-          }
           Serial.printf("\n🎯 [절대 각도 수동 제어] 모터들이 %.1f° 위치로 동시 회전했습니다! (복귀는 'auto' 입력)\n", angle);
           sendEspNowPacket(10);
         } else {
@@ -651,4 +789,6 @@ void loop() {
       }
     }
   }
+
+  vTaskDelay(1 / portTICK_PERIOD_MS);
 }

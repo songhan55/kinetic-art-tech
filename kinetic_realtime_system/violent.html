@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Collapsing Noise - Generative Data Particle Environment</title>
+  <title>징후를 세는 종 | Violent Folding Membrane (StanbyME 60fps)</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
@@ -44,9 +44,13 @@
       width: 100%;
       height: 100%;
       z-index: 1;
+      touch-action: none;
+      cursor: grab;
     }
 
-    /* Minimalist Gallery HUD - Live Bluesky Telemetry (Bottom-Left) */
+    #canvas-container.is-dragging { cursor: grabbing; }
+
+    /* Minimalist Gallery HUD - Live Telemetry (Bottom-Left) */
     .hud-bottom-left {
       position: absolute;
       bottom: 48px;
@@ -167,7 +171,7 @@
 
     .sub-control-row {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       align-items: center;
     }
 
@@ -185,11 +189,11 @@
     }
 
     .live-dot {
-      width: 7px;
-      height: 7px;
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
       background: #10b981;
-      box-shadow: 0 0 10px #10b981;
+      box-shadow: 0 0 8px #10b981;
       animation: blink 1.8s infinite;
     }
 
@@ -205,7 +209,7 @@
       color: #cbd5e1;
       font-family: 'JetBrains Mono', monospace;
       font-size: 11px;
-      padding: 5px 12px;
+      padding: 5px 10px;
       border-radius: 20px;
       cursor: pointer;
       transition: all 0.2s ease;
@@ -266,7 +270,7 @@
     </div>
   </div>
 
-  <!-- Touch-Friendly Scenario & Utility Overlay (Top-Right) -->
+  <!-- Touch-Friendly Scenario & Neural View Overlay (Top-Right) -->
   <div class="control-overlay" id="control-overlay">
     <div class="btn-pill-group">
       <button class="btn-pill active active-live" id="btn-live" onclick="setScenario('live')">🌐 LIVE FEED</button>
@@ -276,6 +280,9 @@
     </div>
 
     <div class="sub-control-row">
+      <button class="btn-action" onclick="setNeuralView('front')">FRONT</button>
+      <button class="btn-action" onclick="setNeuralView('top')">TOP</button>
+      <button class="btn-action" onclick="setNeuralView('side')">SIDE</button>
       <div class="live-badge" id="hw-badge">
         <div class="live-dot" id="live-dot"></div>
         <span id="hw-txt">BLUESKY LIVE</span>
@@ -285,7 +292,7 @@
     </div>
   </div>
 
-  <!-- Hardware-Accelerated Mobile GPU Optimized GLSL Shaders for StanbyME -->
+  <!-- Fast Hardware-Accelerated GLSL Shaders for StanbyME Smart TV -->
   <script id="vertexShader" type="x-shader/x-vertex">
     precision highp float;
 
@@ -296,15 +303,20 @@
     uniform float uRotation;
     uniform float uDamp;
     uniform float uDataIntensity;
+    uniform float uDataBurst;
+    uniform float uDataExplode;
+    uniform float uEventStrength;
 
     attribute vec3 aOrigPos;
     attribute float aLineIdx;
     attribute float aPointNorm;
+    attribute float aLifeSeed;
 
     varying vec3 vColor;
     varying float vAlpha;
+    varying float vZ;
 
-    // Fast 3D Simplex Hash (Optimized for Mobile/TV GPUs)
+    // Fast Simplex Noise 3D GLSL Implementation
     vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
     vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
     vec4 permute(vec4 x) { return mod289(((x * 34.0) + 1.0) * x); }
@@ -340,8 +352,8 @@
       vec4 x_ = floor(j * ns.z);
       vec4 y_ = floor(j - 7.0 * x_);
 
-      vec4 x = x_ *ns.x + ns.yyyy;
-      vec4 y = y_ *ns.x + ns.yyyy;
+      vec4 x = x_ * ns.x + ns.yyyy;
+      vec4 y = y_ * ns.x + ns.yyyy;
       vec4 h = 1.0 - abs(x) - abs(y);
 
       vec4 b0 = vec4(x.xy, y.xy);
@@ -370,81 +382,178 @@
       return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
     }
 
-    // Fast 2-Octave FBM + Analytical Harmonics (Ultra-Fast 60fps on Smart TVs)
-    float fastFBM(vec3 p) {
+    // Fast 2-Octave FBM (60fps Optimized for Mobile/TV GPUs)
+    float fbm(vec3 p) {
       float n1 = snoise(p);
       float n2 = snoise(p * 2.15) * 0.48;
       return n1 * 0.65 + n2;
     }
 
     void main() {
-      vec3 pos = aOrigPos;
-      float r = length(pos.xy);
-      float rNorm = clamp(r / 48.0, 0.0, 1.0);
-      float coreWeight = 1.0 - rNorm;
+      vec3 base = aOrigPos;
+      float latitudeT = aPointNorm * 0.5 + 0.5;
+      float intensity = clamp(uDataIntensity, 0.0, 1.0);
+      float presence = clamp(uDamp, 0.15, 1.0);
+      float dataBurst = clamp(uDataBurst, 0.0, 1.0);
+      float dataExplode = clamp(uDataExplode, 0.0, 1.0);
+      float eventStrength = clamp(uEventStrength, 0.0, 1.0);
+      float timeScaled = uTime * uNoiseSpeed * (1.18 + intensity * 1.62);
 
-      // 1. Inward Centripetal Suction Collapse
-      float effectiveSuction = uSuction * uDamp;
-      float suctionFactor = pow(coreWeight, 1.35) * (0.48 * effectiveSuction);
-      pos.xy *= (1.0 - suctionFactor);
+      // Main silhouette: vertically torn, folded membrane
+      base.y *= 1.17;
+      base.x *= 0.76;
+      base.z *= 0.82;
+      float verticalNorm = clamp(abs(base.y) / 56.0, 0.0, 1.0);
+      float waist = 0.42 + pow(verticalNorm, 0.72) * 0.76;
+      base.x *= waist;
+      base.z *= 0.72 + verticalNorm * 0.42;
+      base.x += sin(base.y * 0.082 + 0.55) * 4.8;
+      base.z += sin(base.y * 0.105 - 0.9) * 3.5;
 
-      // 2. Swirling Core Vortex
-      float timeScaled = uTime * uNoiseSpeed;
-      vec3 sampleCoord = vec3(pos.xy * 0.034, timeScaled * 0.16);
-      float nFbm = fastFBM(sampleCoord);
+      float particleCycle = fract(timeScaled * (0.040 + intensity * 0.115) + aLifeSeed);
+      float particleLife = smoothstep(0.0, 0.055, particleCycle) * (1.0 - smoothstep(0.86, 1.0, particleCycle));
+      float infallProgress = pow(particleCycle, 1.62);
+      float infallScale = 1.0 - infallProgress * (0.88 + intensity * 0.055) * presence;
 
-      float vortexAngle = pow(coreWeight, 1.7) * (sin(timeScaled * 0.85 + nFbm * 3.2) * (1.7 * uRotation * uDamp));
-      float vCos = cos(vortexAngle);
-      float vSin = sin(vortexAngle);
-      pos.xy = vec2(pos.x * vCos - pos.y * vSin, pos.x * vSin + pos.y * vCos);
+      vec3 baseDirection = normalize(base + vec3(0.0001));
+      vec3 fieldAxis = normalize(vec3(0.34, 0.86, 0.39));
+      vec3 tangentA = normalize(cross(baseDirection, fieldAxis) + vec3(0.001));
+      vec3 tangentB = normalize(cross(baseDirection, tangentA) + vec3(0.001));
 
-      // 3. Topographic Crevasses & Ridge Folds
-      float diagCoord = (pos.x * 0.72 - pos.y * 0.68) * 0.042;
-      float nRidge = 1.0 - abs(snoise(sampleCoord + vec3(diagCoord * 1.8, -diagCoord, timeScaled * 0.12)));
-      float nFast = snoise(vec3(pos.xy * 0.08, timeScaled * 1.1));
+      vec3 flowCoord = base * 0.052 + vec3(timeScaled * 0.145, -timeScaled * 0.118, timeScaled * 0.132);
+      float flowNoise = fbm(flowCoord);
+      float detailNoise = fbm(flowCoord * 2.18 + vec3(4.2, -2.7, 1.3));
+      float microNoise = snoise(flowCoord * 5.6 + vec3(-1.8, 2.2, timeScaled * 0.11));
 
-      // Core Turbulence & 3D Z-Displacement
-      float coreTurbulenceZ = (nFast * 13.0 + sin(pos.y * 0.7 + timeScaled * 2.2 + nFbm * 3.8) * 15.0) * pow(coreWeight, 1.5) * (uNoiseAmp * uDamp);
-      float globalRidgeZ = (nFbm * 9.0 + pow(nRidge, 2.3) * 22.0) * (uNoiseAmp * uDamp) * coreWeight;
+      vec3 pos = base * infallScale;
+      pos += baseDirection * flowNoise * (3.4 + intensity * 7.2) * presence;
+      pos += tangentA * detailNoise * (2.3 + intensity * 5.2) * presence;
+      pos += tangentB * microNoise * (0.82 + intensity * 1.85) * presence;
 
-      float edgeDamp = smoothstep(1.02, 0.94, rNorm);
-      pos.z += (globalRidgeZ + coreTurbulenceZ) * edgeDamp;
+      float wavePhase = base.y * 0.105 + base.x * 0.042 - timeScaled * (1.05 + intensity * 1.15);
+      float wavePrimary = sin(wavePhase);
+      float waveSecondary = sin(base.x * 0.135 - base.y * 0.028 - timeScaled * 0.72 + flowNoise * 1.4);
+      float coherentWave = wavePrimary + waveSecondary * 0.42;
+      float waveCrest = pow(clamp(0.5 + 0.5 * wavePrimary, 0.0, 1.0), 7.0);
+      pos += tangentB * coherentWave * (1.85 + intensity * 2.65) * presence;
+      pos += baseDirection * waveCrest * (1.25 + intensity * 2.10) * presence;
 
-      // Scanline Y-shift in core
-      float yShift = (sin(pos.x * 0.25 + timeScaled * 1.8 + nFbm * 3.0) * 6.0 + pow(nRidge, 2.0) * 4.5) * pow(coreWeight, 1.4) * (uNoiseAmp * uDamp);
-      pos.y += yShift * edgeDamp;
+      float foldWave = sin(base.y * 0.118 - timeScaled * (1.15 + intensity * 2.25) + flowNoise * 5.8);
+      pos.x += foldWave * (2.2 + intensity * 5.8) * presence;
+      pos.z += cos(base.y * 0.084 + timeScaled * 1.42 + detailNoise * 4.2) * (1.4 + intensity * 4.1) * presence;
 
-      // Radial pulse
-      float radialPulse = (nFbm * 2.0 + nFast * 0.9) * (uNoiseAmp * uDamp) * pow(coreWeight, 1.2);
-      pos.xy += (pos.xy / max(0.001, length(pos.xy))) * radialPulse * edgeDamp;
+      // Convergence into orbital ribbons & core
+      float burstGrain = snoise(base * 0.19 + vec3(aLifeSeed * 5.7, -aLineIdx * 3.1, timeScaled * 0.08));
+      float burstRing = sin(length(base) * 0.31 - aLineIdx * 8.0);
+
+      float orbitalAngle = atan(base.z, base.x) + timeScaled * (0.82 + intensity * 1.35);
+      float orbitLayer = floor(latitudeT * 8.0) / 7.0;
+      float orbitScale = mix(0.68, 1.24, eventStrength);
+      float orbitRadius = (5.2 + orbitLayer * 20.5) * orbitScale;
+      float orbitTilt = (orbitLayer - 0.5) * 2.35;
+      vec3 orbitalPos = vec3(
+        cos(orbitalAngle) * orbitRadius,
+        sin(orbitalAngle) * orbitRadius * (0.36 + orbitLayer * 0.25),
+        sin(orbitalAngle * 2.0 + orbitLayer * 9.0) * orbitRadius * 0.16
+      );
+      float orbitTiltCs = cos(orbitTilt);
+      float orbitTiltSn = sin(orbitTilt);
+      orbitalPos.yz = mat2(orbitTiltCs, -orbitTiltSn, orbitTiltSn, orbitTiltCs) * orbitalPos.yz;
+
+      float streamSelector = smoothstep(0.70, 0.90, fract(latitudeT * 5.0 + aLineIdx * 0.12));
+      float feedT = fract(orbitalAngle / 6.2831853 + aLifeSeed * 0.22 + orbitLayer * 0.31);
+      float feedRadius = mix(43.0, 5.6, pow(feedT, 0.72)) * orbitScale;
+      float feedAngle = orbitalAngle + feedT * (3.8 + orbitLayer * 2.2);
+      vec3 feedPos = vec3(
+        cos(feedAngle) * feedRadius,
+        sin(feedAngle) * feedRadius * 0.44,
+        sin(feedAngle * 1.7 + orbitTilt) * feedRadius * 0.22
+      );
+      vec3 attractorPos = mix(orbitalPos, feedPos, streamSelector * 0.82);
+      attractorPos += normalize(attractorPos + vec3(0.001)) * burstGrain * (0.35 + orbitLayer * 0.85) * mix(0.62, 1.65, eventStrength);
+
+      float convergenceMorph = dataBurst * mix(0.58, 0.97, eventStrength);
+      pos = mix(pos, attractorPos, convergenceMorph);
+      float orbitalFilament = dataBurst * mix(0.55, 1.22, eventStrength) * (0.42 + pow(0.5 + 0.5 * sin(orbitalAngle * 4.0 + orbitLayer * 17.0), 10.0) * 0.58);
+
+      float tearNoise = snoise(vec3(base.y * 0.055 + aLineIdx * 2.7, base.x * 0.047 - aLifeSeed * 3.9, timeScaled * 0.21));
+      float tearMask = pow(clamp(abs(tearNoise), 0.0, 1.0), 1.35);
+      vec3 tearDirection = normalize(vec3(sin(aLineIdx * 19.7 + aLifeSeed * 5.0), cos(aLineIdx * 13.1 - aLifeSeed * 7.0) * 0.74, sin(aLineIdx * 8.3 + 1.4) * 0.58));
+      pos += baseDirection * (burstGrain * 3.8 + burstRing * 1.7) * (dataBurst * 0.18 + dataExplode * 0.72) * presence;
+      pos += tearDirection * tearMask * dataExplode * (5.0 + eventStrength * 18.0) * presence;
+      pos += tangentA * sin(base.y * 0.21 + aLifeSeed * 18.0) * dataExplode * (2.5 + tearMask * 5.0) * presence;
+
+      float spiral = infallProgress * (2.2 + intensity * 5.8) * presence;
+      float cs = cos(spiral);
+      float sn = sin(spiral);
+      pos.xz = mat2(cs, -sn, sn, cs) * pos.xz;
+      pos.xy = mat2(cos(spiral * 0.18), -sin(spiral * 0.18), sin(spiral * 0.18), cos(spiral * 0.18)) * pos.xy;
+
+      float ridgeA = pow(clamp(1.0 - abs(flowNoise * 1.55), 0.0, 1.0), 8.0);
+      float ridgeB = pow(clamp(1.0 - abs(detailNoise * 1.72), 0.0, 1.0), 10.0);
+      float membrane = smoothstep(-0.42, 0.50, flowNoise + detailNoise * 0.42);
+      float node = pow(clamp(ridgeA * ridgeB * 1.32, 0.0, 1.0), 2.2);
+
+      float azimuth = atan(base.z, base.x);
+      float travellingSignal = 0.5 + 0.5 * sin(azimuth * 5.0 + latitudeT * 17.0 - timeScaled * (1.35 + intensity * 3.80) + flowNoise * 5.0);
+      float signal = pow(travellingSignal, 16.0) * (ridgeA * 0.72 + ridgeB * 0.28);
+
+      float finalRadius = length(pos);
+      float eventHorizon = smoothstep(1.5, 3.4, finalRadius);
+      float accretionShell = exp(-abs(finalRadius - 5.2) * 0.24);
+      float centralDensity = exp(-finalRadius * 0.085);
+      float nucleusRing = exp(-abs(finalRadius - 5.8 * orbitScale) * 0.62) * dataBurst * mix(0.52, 1.30, eventStrength);
+      float foldSeam = exp(-abs(base.x + sin(base.y * 0.095 + timeScaled * 0.24) * 3.6) * 0.14) * (0.36 + ridgeA * 0.64);
+      float convergence = exp(-abs(base.y - 7.0) * 0.046) * exp(-abs(base.x + 4.0) * 0.046);
+      float localDensity = clamp(
+        ridgeA * 0.50 + ridgeB * 0.36 + waveCrest * (0.34 + intensity * 0.28) + node * 0.82 + signal * (0.68 + intensity * 0.62)
+        + accretionShell * 0.72 + centralDensity * 0.34 + orbitalFilament * 0.58 + nucleusRing * 0.92 + foldSeam * 0.52 + convergence * 0.27,
+        0.0, 1.55
+      );
+
+      float dustBreak = snoise(vec3(aLineIdx * 27.0, latitudeT * 13.0, timeScaled * 0.13 + aLifeSeed * 7.0));
+      float dust = smoothstep(-0.72, 0.18, dustBreak + detailNoise * 0.22);
 
       vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
       gl_Position = projectionMatrix * mvPosition;
 
-      // Point size attenuation
-      float pSize = (1.2 + pow(nRidge, 2.0) * 1.4 + pow(coreWeight, 1.5) * 1.1) * (130.0 / -mvPosition.z);
-      gl_PointSize = clamp(pSize, 1.0, 4.0);
+      float pointSize = 0.92 + localDensity * (0.62 + intensity * 0.38) + node * (0.36 + intensity * 0.34)
+                      + accretionShell * 0.24 + foldSeam * 0.24 + waveCrest * 0.34 + orbitalFilament * 0.46
+                      + nucleusRing * 0.90 + dataBurst * centralDensity * 0.38 + dataExplode * (0.24 + tearMask * 0.52);
+      pointSize *= 190.0 / max(-mvPosition.z, 1.0);
+      gl_PointSize = clamp(pointSize, 0.60, 3.10);
 
-      // Dynamic Color Transition
-      float effIntensity = uDataIntensity * uDamp;
-      vec3 colBaseWhite = vec3(0.85, 0.88, 0.94);
-      vec3 colMidTension = vec3(0.96, 0.82, 0.98); // Lavender/Amber
-      vec3 colHighTension = vec3(1.00, 0.72, 0.75); // Crimson/Red Core
-      vec3 colPureCore = vec3(1.00, 1.00, 1.00);
+      // Distinct Artistic Color Palette
+      vec3 lavenderA = vec3(0.9176, 0.7020, 1.0000);
+      vec3 lavenderB = vec3(0.7608, 0.6353, 0.9098);
+      vec3 lavenderC = vec3(0.7961, 0.7490, 1.0000);
+      vec3 periwinkle = vec3(0.6353, 0.6588, 0.9098);
+      vec3 mistBlue = vec3(0.7020, 0.8039, 1.0000);
+      vec3 signalBlue = vec3(0.4784, 0.6118, 1.0000);
+      vec3 whiteGlow = vec3(1.0000);
 
-      vec3 c = colBaseWhite;
-      if (effIntensity > 0.35) {
-        float kMid = clamp((effIntensity - 0.35) / 0.35, 0.0, 1.0);
-        c = mix(c, colMidTension, kMid * pow(coreWeight, 1.4));
-      }
-      if (effIntensity > 0.70) {
-        float kHigh = clamp((effIntensity - 0.70) / 0.30, 0.0, 1.0);
-        c = mix(c, colHighTension, kHigh * pow(coreWeight, 1.6));
-      }
-      c = mix(c, colPureCore, pow(coreWeight, 2.2) * 0.45);
+      float palettePhase = fract(aLineIdx * 17.31 + latitudeT * 3.73);
+      vec3 c = mix(signalBlue, periwinkle, membrane * 0.62);
+      c = mix(c, lavenderB, smoothstep(-0.34, 0.46, detailNoise) * 0.58);
+      c = mix(c, lavenderA, ridgeB * 0.48);
+      c = mix(c, lavenderC, palettePhase * 0.24);
+      c = mix(c, mistBlue, ridgeA * 0.34);
+      c = mix(c, mistBlue, waveCrest * 0.20);
 
+      float hotCore = pow(clamp(node + signal * 0.72 + accretionShell * 0.34 + foldSeam * 0.42 + convergence * 0.30, 0.0, 1.0), 4.7);
+      c = mix(c, whiteGlow, hotCore * (0.42 + intensity * 0.22));
+      c = mix(c, whiteGlow, orbitalFilament * 0.28 + nucleusRing * 0.48);
+      c = mix(c, mistBlue, dataExplode * tearMask * 0.24);
+      c *= 0.96 + localDensity * 0.06 + intensity * 0.04;
       vColor = c;
-      vAlpha = 0.52 + 0.48 * edgeDamp;
+
+      vAlpha = (
+        0.205 + membrane * 0.21 + ridgeA * 0.43 + ridgeB * 0.34 + waveCrest * 0.30 + node * 0.55
+        + signal * (0.48 + intensity * 0.38) + accretionShell * 0.42 + foldSeam * 0.34 + convergence * 0.16
+        + orbitalFilament * 0.34 + nucleusRing * 0.58 + dataBurst * centralDensity * 0.16 + dataExplode * tearMask * 0.22
+      ) * particleLife * eventHorizon * mix(0.40, 1.0, presence) * mix(0.42, 1.0, dust);
+      vAlpha = clamp(vAlpha, 0.0, 0.92);
+      vZ = localDensity * (0.72 + intensity * 0.76);
     }
   </script>
 
@@ -455,7 +564,7 @@
 
     void main() {
       vec2 coord = gl_PointCoord - vec2(0.5);
-      float distSq = dot(coord, dot(coord, coord) > 0.25 ? coord : coord);
+      float distSq = dot(coord, coord);
       if (distSq > 0.25) discard;
 
       float alpha = (0.25 - distSq) * 4.0 * vAlpha;
@@ -465,7 +574,7 @@
 
   <script>
     // =========================================================================
-    // 1. Bluesky Live Data & Historical Scenario Engine
+    // 1. Bluesky Live Data Stream & Historical Scenario Engine
     // =========================================================================
     const CRISIS_TAGS = ['war', 'conflict', 'ukraine', 'crisis', 'iran', 'military', 'missile'];
     let tagIndex = 0;
@@ -473,7 +582,6 @@
 
     let liveScore = 32.0;
     let normalizedIntensity = 0.32;
-
     let targetNoiseSpeed = 1.0;
     let currentNoiseSpeed = 1.0;
     let targetNoiseAmp = 0.55;
@@ -482,10 +590,13 @@
     let currentSuction = 0.45;
     let targetRotation = 0.22;
     let currentRotation = 0.22;
-
     let targetDamp = 1.0;
     let currentDamp = 1.0;
     let liveViewerDist = 3.0;
+
+    let dataBurstProgress = 0.0;
+    let dataExplodeProgress = 0.0;
+    let eventStrength = 0.32;
 
     const valStatus = document.getElementById('val-status');
     const valTime = document.getElementById('val-time');
@@ -528,6 +639,10 @@
         targetSuction = 0.79;
         targetRotation = 0.35;
         targetDamp = 1.0;
+        eventStrength = 0.98;
+
+        dataBurstProgress = 1.0;
+        setTimeout(() => { dataExplodeProgress = 1.0; }, 400);
 
         valTime.innerText = '2022-02-24 04:30:00 UTC (WAR PEAK)';
         valTag.innerText = 'GLOBAL SEARCH & POST SURGE (#war #invasion #ukraine)';
@@ -549,6 +664,10 @@
         targetSuction = 0.66;
         targetRotation = 0.28;
         targetDamp = 1.0;
+        eventStrength = 0.75;
+
+        dataBurstProgress = 0.8;
+        setTimeout(() => { dataExplodeProgress = 0.8; }, 400);
 
         valTime.innerText = '2024-04-14 01:15:00 UTC (HIGH ESCALATION)';
         valTag.innerText = 'REGIONAL RETALIATION ALERT (#iran #israel #missiles)';
@@ -570,6 +689,7 @@
         targetSuction = 0.33;
         targetRotation = 0.18;
         targetDamp = 0.15;
+        eventStrength = 0.15;
 
         valTime.innerText = new Date().toISOString().replace('T', ' ').substring(0, 19) + " UTC";
         valTag.innerText = 'AUDIENCE PROXIMITY INTERVENTION (K = 0.15)';
@@ -581,7 +701,7 @@
 
     async function sendScenarioToMaster(mode, score, post) {
       try {
-        const url = `http://192.168.0.14/api/set_score?mode=${encodeURIComponent(mode)}&score=${score}&post=${encodeURIComponent(post || '')}`;
+        const url = `http://${activeMasterHost}/api/set_score?mode=${encodeURIComponent(mode)}&score=${score}&post=${encodeURIComponent(post || '')}`;
         fetch(url, { mode: 'cors' }).catch(() => {
           fetch(`http://kinetic-master.local/api/set_score?mode=${encodeURIComponent(mode)}&score=${score}&post=${encodeURIComponent(post || '')}`, { mode: 'cors' }).catch(()=>{});
         });
@@ -619,6 +739,10 @@
             targetNoiseAmp = 0.35 + (normalizedIntensity * 0.45);
             targetSuction = 0.25 + (normalizedIntensity * 0.55);
             targetRotation = 0.15 + Math.min(0.20, (posts.length / 10.0) * 0.20);
+            eventStrength = Math.min(1.0, 0.25 + normalizedIntensity * 0.65 + (posts.length / 8.0) * 0.20);
+
+            dataBurstProgress = 1.0;
+            setTimeout(() => { dataExplodeProgress = 1.0; }, 400);
 
             const timeStr = new Date().toISOString().replace('T', ' ').substring(0, 19) + " UTC";
             valTime.innerText = timeStr;
@@ -638,63 +762,76 @@
       }
     }
 
-    // Hardware ESP32 Master Gateway Telemetry Sync (192.168.0.14 실시간 모터 각도 및 위상 완전 동기화)
-    let masterUrl = 'http://192.168.0.14/api/status';
+    // Dynamic Hardware ESP32 Master Gateway Telemetry Sync (Auto-Discovery)
+    const urlParams = new URLSearchParams(window.location.search);
+    const paramMaster = urlParams.get('master');
+    let activeMasterHost = paramMaster || '192.168.0.14';
+    const MASTER_HOST_CANDIDATES = [
+      paramMaster,
+      '192.168.0.14',
+      'kinetic-master.local',
+      '192.168.0.20',
+      'esp32-master.local',
+      window.location.hostname,
+      'localhost'
+    ].filter(Boolean);
+
+    let isMasterConnected = false;
+    let candidateIndex = 0;
 
     async function syncHardwareTelemetry() {
       try {
+        const host = isMasterConnected ? activeMasterHost : MASTER_HOST_CANDIDATES[candidateIndex];
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 400);
-        let res;
-        try {
-          res = await fetch(masterUrl, { mode: 'cors', signal: controller.signal });
-        } catch (e) {
-          masterUrl = (masterUrl.includes('192.168.0.14')) ? 'http://kinetic-master.local/api/status' : 'http://192.168.0.14/api/status';
-          clearTimeout(timeoutId);
-          return;
-        }
+        const timeoutId = setTimeout(() => controller.abort(), 220);
+        const res = await fetch(`http://${host}/api/status`, { signal: controller.signal });
         clearTimeout(timeoutId);
 
         if (res.ok) {
           const hw = await res.json();
+          activeMasterHost = host;
+          isMasterConnected = true;
+
           if (hw.dist !== undefined) {
             liveViewerDist = hw.dist;
-            
-            // 1. 관람객 거리 및 감쇄 계수 K 동기화
-            if (hw.damp !== undefined) {
-              targetDamp = hw.damp;
-            } else {
+            if (currentMode === 'live') {
               if (liveViewerDist >= 2.0) targetDamp = 1.0;
               else if (liveViewerDist <= 0.3) targetDamp = 0.15;
               else targetDamp = 0.15 + ((liveViewerDist - 0.3) / 1.7) * 0.85;
+
+              if (hw.score !== undefined) {
+                liveScore = hw.score;
+                normalizedIntensity = liveScore / 100.0;
+                targetNoiseSpeed = 0.60 + (normalizedIntensity * 0.90);
+                targetNoiseAmp = 0.35 + (normalizedIntensity * 0.45);
+                targetSuction = 0.25 + (normalizedIntensity * 0.55);
+                valScore.innerText = `${liveScore.toFixed(1)} / 100 (ESP32 Live)`;
+              }
+
+              if (hw.post !== undefined && hw.post.length > 0) {
+                valPost.innerText = `"${hw.post.substring(0, 75)}..."`;
+              }
             }
 
-            // 2. 실시간 국제정세 긴장도 점수 동기화
-            if (hw.score !== undefined) {
-              liveScore = hw.score;
-              normalizedIntensity = liveScore / 100.0;
-              targetNoiseSpeed = 0.60 + (normalizedIntensity * 0.90);
-              targetNoiseAmp = 0.35 + (normalizedIntensity * 0.45);
-              targetSuction = 0.25 + (normalizedIntensity * 0.55);
-              valScore.innerText = `${liveScore.toFixed(1)} / 100 (ESP32 Live)`;
-            }
-
-            // 3. 마스터가 포착한 최신 분쟁 뉴스 동기화
-            if (hw.post !== undefined && hw.post.length > 0) {
-              valPost.innerText = `"${hw.post.substring(0, 75)}..."`;
-            }
-
-            valDist.innerText = `${liveViewerDist.toFixed(2)}m (K = ${currentDamp.toFixed(2)})`;
+            valDist.innerText = `${liveViewerDist.toFixed(2)}m (K = ${currentDamp.toFixed(2)}) [ESP32: ${host}]`;
             if (currentMode === 'live') {
-              hwTxt.innerText = `ESP32 LIVE (K=${currentDamp.toFixed(2)} | ±${hw.amp ? hw.amp.toFixed(1) : '9.5'}°)`;
+              hwTxt.innerText = `ESP32 LIVE (K=${currentDamp.toFixed(2)})`;
             }
           }
+        } else {
+          throw new Error('Not OK');
         }
-      } catch (e) {}
+      } catch (e) {
+        if (!isMasterConnected) {
+          candidateIndex = (candidateIndex + 1) % MASTER_HOST_CANDIDATES.length;
+        } else {
+          isMasterConnected = false;
+        }
+      }
     }
 
     setInterval(fetchBlueskyLiveFeed, 10000); // 10-Second Steady Data Polling
-    setInterval(syncHardwareTelemetry, 200); // 200ms Master Hardware Polling
+    setInterval(syncHardwareTelemetry, 200);  // High-Speed 200ms Distance Sync
     fetchBlueskyLiveFeed();
 
     function toggleHUD() {
@@ -717,7 +854,7 @@
     const scene = new THREE.Scene();
 
     const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 0, 145);
+    camera.position.set(0, 0, 108);
 
     const renderer = new THREE.WebGLRenderer({
       antialias: false,
@@ -731,7 +868,7 @@
     container.appendChild(renderer.domElement);
 
     const NUM_LINES = 200;
-    const POINTS_PER_LINE = 340;
+    const POINTS_PER_LINE = 380;
     const TOTAL_POINTS = NUM_LINES * POINTS_PER_LINE;
 
     const geometry = new THREE.BufferGeometry();
@@ -739,21 +876,31 @@
     const origPos = new Float32Array(TOTAL_POINTS * 3);
     const lineIndices = new Float32Array(TOTAL_POINTS);
     const pointNorms = new Float32Array(TOTAL_POINTS);
-
-    const MAX_RADIUS = 48.0;
+    const lifeSeeds = new Float32Array(TOTAL_POINTS);
 
     let idx = 0;
     for (let l = 0; l < NUM_LINES; l++) {
-      const lineNorm = (l / (NUM_LINES - 1)) * 2.0 - 1.0;
-      const y0 = lineNorm * (MAX_RADIUS * 0.985);
-      const chordHalf = Math.sqrt(Math.max(0.001, MAX_RADIUS * MAX_RADIUS - y0 * y0));
+      const lineNorm = l / (NUM_LINES - 1);
+      const equalAreaY = -1.0 + 2.0 * ((l + 0.5) / NUM_LINES);
+      const latitude = Math.asin(equalAreaY);
+      const bandOffset = (l % 2) * 0.5;
 
       for (let p = 0; p < POINTS_PER_LINE; p++) {
-        const pNorm = (p / (POINTS_PER_LINE - 1)) * 2.0 - 1.0;
-        const x0 = pNorm * chordHalf;
+        const longitudeT = (p + bandOffset) / POINTS_PER_LINE;
+        const azimuth = longitudeT * Math.PI * 2.0;
+        const shellLayer = ((p * 17 + l * 13) % 9) / 8.0;
+        const thickness = (shellLayer - 0.5) * 5.4;
+        const macroWarp = 1.0
+          + Math.sin(azimuth * 3.0 + latitude * 2.2) * 0.045
+          + Math.sin(azimuth * 5.0 - latitude * 3.6) * 0.025;
+        const radius = (48.5 + thickness) * macroWarp;
+        const cosLatitude = Math.cos(latitude);
+        let x0 = Math.cos(azimuth) * cosLatitude * radius * 1.06;
+        let y0 = Math.sin(latitude) * radius * 0.91;
+        let z0 = Math.sin(azimuth) * cosLatitude * radius * 0.98;
 
-        const distFromCenter = Math.sqrt(x0 * x0 + y0 * y0);
-        const z0 = Math.sqrt(Math.max(0.0, MAX_RADIUS * MAX_RADIUS - distFromCenter * distFromCenter)) * 0.20;
+        x0 += y0 * 0.13;
+        z0 += y0 * 0.055;
 
         positions[idx * 3]     = x0;
         positions[idx * 3 + 1] = y0;
@@ -763,8 +910,9 @@
         origPos[idx * 3 + 1] = y0;
         origPos[idx * 3 + 2] = z0;
 
-        lineIndices[idx] = l;
-        pointNorms[idx] = pNorm;
+        lineIndices[idx] = (lineNorm + longitudeT * 0.6180339) % 1.0;
+        pointNorms[idx] = lineNorm * 2.0 - 1.0;
+        lifeSeeds[idx] = (lineNorm * 0.413 + longitudeT * 0.587 + (l % 11) / 11.0) % 1.0;
 
         idx++;
       }
@@ -774,6 +922,7 @@
     geometry.setAttribute('aOrigPos', new THREE.BufferAttribute(origPos, 3));
     geometry.setAttribute('aLineIdx', new THREE.BufferAttribute(lineIndices, 1));
     geometry.setAttribute('aPointNorm', new THREE.BufferAttribute(pointNorms, 1));
+    geometry.setAttribute('aLifeSeed', new THREE.BufferAttribute(lifeSeeds, 1));
 
     const uniforms = {
       uTime: { value: 0.0 },
@@ -782,7 +931,10 @@
       uSuction: { value: 0.45 },
       uRotation: { value: 0.22 },
       uDamp: { value: 1.0 },
-      uDataIntensity: { value: 0.32 }
+      uDataIntensity: { value: 0.32 },
+      uDataBurst: { value: 0.0 },
+      uDataExplode: { value: 0.0 },
+      uEventStrength: { value: 0.32 }
     };
 
     const shaderMaterial = new THREE.ShaderMaterial({
@@ -801,18 +953,24 @@
     const clock = new THREE.Clock();
 
     // -------------------------------------------------------------------------
-    // Slow Majestic Screen-Normal (Z-Axis) Rotation & Touch/Mouse Drag Controls
+    // View Angles & Touch/Mouse Drag Controls
     // -------------------------------------------------------------------------
+    let targetRotX = 0.0;
+    let targetRotY = 0.0;
+    let targetRotZ = 0.0;
+    let currentRotX = 0.0;
+    let currentRotY = 0.0;
+    let currentRotZ = 0.0;
+
+    function setNeuralView(view) {
+      if (view === 'front') { targetRotX = 0.0; targetRotY = 0.0; targetRotZ = 0.0; }
+      else if (view === 'top') { targetRotX = 1.35; targetRotY = 0.0; targetRotZ = 0.45; }
+      else if (view === 'side') { targetRotX = 0.22; targetRotY = 1.42; targetRotZ = 0.0; }
+    }
+
     let isDragging = false;
     let prevMouseX = 0;
     let prevMouseY = 0;
-    let targetRotX = 0.0;
-    let targetRotY = 0.0;
-    let targetRotZ = -0.12;
-    let currentRotX = 0.0;
-    let currentRotY = 0.0;
-    let currentRotZ = -0.12;
-    let autoRotateBase = 0.0010;
 
     window.addEventListener('mousedown', (e) => {
       if (e.target.closest('.control-overlay')) return;
@@ -828,13 +986,13 @@
       prevMouseX = e.clientX;
       prevMouseY = e.clientY;
 
-      targetRotZ += deltaX * 0.004;
-      targetRotX += deltaY * 0.003;
+      targetRotY += deltaX * 0.005;
+      targetRotX += deltaY * 0.004;
     });
 
     window.addEventListener('mouseup', () => { isDragging = false; });
 
-    // Touch Support for StanbyME / Touch Display
+    // Touch Support for StanbyME
     window.addEventListener('touchstart', (e) => {
       if (e.touches.length === 1 && !e.target.closest('.control-overlay')) {
         isDragging = true;
@@ -850,8 +1008,8 @@
       prevMouseX = e.touches[0].clientX;
       prevMouseY = e.touches[0].clientY;
 
-      targetRotZ += deltaX * 0.005;
-      targetRotX += deltaY * 0.004;
+      targetRotY += deltaX * 0.006;
+      targetRotX += deltaY * 0.005;
     }, { passive: true });
 
     window.addEventListener('touchend', () => { isDragging = false; });
@@ -859,7 +1017,7 @@
     window.addEventListener('wheel', (e) => {
       if (e.target.closest('.control-overlay')) return;
       camera.position.z += e.deltaY * 0.05;
-      camera.position.z = Math.min(220, Math.max(80, camera.position.z));
+      camera.position.z = Math.min(180, Math.max(60, camera.position.z));
     }, { passive: true });
 
     function animate() {
@@ -867,12 +1025,15 @@
 
       const elapsedTime = clock.getElapsedTime();
 
-      // Smooth Frame LERP for Procedural Parameters
+      // Smooth Frame LERP
       currentNoiseSpeed += (targetNoiseSpeed - currentNoiseSpeed) * 0.05;
       currentNoiseAmp   += (targetNoiseAmp - currentNoiseAmp) * 0.05;
       currentSuction    += (targetSuction - currentSuction) * 0.05;
       currentRotation   += (targetRotation - currentRotation) * 0.05;
       currentDamp       += (targetDamp - currentDamp) * 0.08;
+
+      dataBurstProgress   *= 0.94;
+      dataExplodeProgress *= 0.92;
 
       uniforms.uTime.value = elapsedTime;
       uniforms.uNoiseSpeed.value = currentNoiseSpeed;
@@ -881,11 +1042,14 @@
       uniforms.uRotation.value = currentRotation;
       uniforms.uDamp.value = currentDamp;
       uniforms.uDataIntensity.value = normalizedIntensity;
+      uniforms.uDataBurst.value = dataBurstProgress;
+      uniforms.uDataExplode.value = dataExplodeProgress;
+      uniforms.uEventStrength.value = eventStrength;
 
       valDist.innerText = `${liveViewerDist.toFixed(2)}m (K = ${currentDamp.toFixed(2)})`;
 
-      const dynamicSpeed = autoRotateBase * (0.8 + (currentRotation * 1.5));
-      targetRotZ += dynamicSpeed;
+      // Continuous Slow Ambient Spin
+      targetRotY += 0.0010 * (0.8 + currentRotation * 1.2);
 
       currentRotX += (targetRotX - currentRotX) * 0.08;
       currentRotY += (targetRotY - currentRotY) * 0.08;
